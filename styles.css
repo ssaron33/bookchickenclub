@@ -48,3 +48,9 @@ body:has(.route-page:not(#home):target) .static-routes .route-page:first-child {
 .danger-button{border-radius:11px;padding:10px 14px;font:inherit;font-weight:700;cursor:pointer}
 .current-cover-note{font-size:12px;color:var(--muted);padding:9px 11px;background:var(--surface2);border-radius:9px}
 @media(max-width:520px){.action-row{align-items:stretch}.action-row button,.action-row .participating-badge{flex:1;text-align:center;justify-content:center}.record-owner-actions button{flex:0 0 auto}}
+
+/* v0.7.4: native hidden must always win over display rules. */
+[hidden]{display:none !important}
+.record-owner-actions{display:flex;gap:7px;margin-top:12px}
+.record-owner-actions button{border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:9px;padding:6px 10px;font:inherit;font-size:12px;cursor:pointer}
+.record-owner-actions button:hover{background:var(--surface2);color:var(--text)}

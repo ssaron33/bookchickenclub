@@ -1,4 +1,4 @@
-// 북치킨클럽 v0.7.3 — 라우팅/책 상세/기록 관리 안정화
+// 북치킨클럽 v0.7.4 — 공유 DB/라우팅/기록 관리 안정화
 const API_URL = 'https://script.google.com/macros/s/AKfycbxONtBlo8vsHmi8xdoOt5lJGHjnLOf6o3zPuIB1sYB3Gb2tb2EGe69ET-UFSal03y3K6A/exec';
 
 const data = {
@@ -28,6 +28,19 @@ const fallbackData = {
 const app = document.getElementById('app');
 const route = () => location.hash.replace(/^#\/?/, '') || 'home';
 
+function navigate(hash){
+  const target = String(hash || '#home');
+  if(location.hash === target){ render(); }
+  else location.hash = target;
+}
+
+function normalizeBookId(id){
+  let s = String(id ?? '').trim();
+  try { s = decodeURIComponent(s); } catch(e) {}
+  if(!s) return '';
+  return s.startsWith('book-') ? s : `book-${s}`;
+}
+
 function copyData(source){
   data.books = Array.isArray(source.books) ? source.books : [];
   data.members = Array.isArray(source.members) ? source.members : [];
@@ -36,14 +49,15 @@ function copyData(source){
 }
 
 function book(id){
-  return data.books.find(x => String(x.id) === String(id));
+  const target = normalizeBookId(id);
+  return data.books.find(x => normalizeBookId(x.id || x.book_id) === target);
 }
 
 function normalizeDateInput(value){
   const s = String(value ?? '').trim();
   if(!s || s === '미정') return '';
   // Google Sheets에서 날짜가 2026.10.07 / 2026/10/07 등으로 들어오는 경우
-  let m = s.match(/^(\d{4})[.\/-](\d{1,2})[.\/-](\d{1,2})/);
+  let m = s.match(/^(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
   if(m) return `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
   // ISO datetime
   m = s.match(/^(\d{4}-\d{2}-\d{2})/);
@@ -59,7 +73,6 @@ function escapeHtml(value){
 
 async function fetchData(){
   dataLoading = true;
-  sharedDbAvailable = false;
   lastDataError = '';
 
   // Google Apps Script는 간혹 첫 요청에서 리다이렉트/네트워크 지연이 발생할 수 있으므로
@@ -67,7 +80,7 @@ async function fetchData(){
   let lastError = null;
   for(let attempt = 1; attempt <= 3; attempt++){
     try {
-      const url = `${API_URL}?action=data&client=v0.7.2&_=${Date.now()}-${attempt}`;
+      const url = `${API_URL}?action=data&client=v0.7.4&_=${Date.now()}-${attempt}`;
       const response = await fetch(url, {
         method: 'GET',
         cache: 'no-store',
@@ -110,6 +123,7 @@ async function fetchData(){
   }
 
   sharedDbAvailable = false;
+  dataLoading = false;
   lastDataError = lastError?.message || '공유 DB에 연결할 수 없습니다.';
   // file://에서 오프라인 프로토타입을 직접 열 때만 샘플 데이터를 사용한다.
   // GitHub Pages에서는 샘플 데이터를 실제 데이터처럼 보여주지 않는다.
@@ -122,8 +136,8 @@ async function fetchData(){
 function showDataErrorIfNeeded(ok){
   const banner = document.getElementById('dataStatus');
   if(!banner) return;
-  banner.hidden = ok;
-  if(ok) return;
+  banner.hidden = !!ok;
+  if(ok){ banner.innerHTML = ''; return; }
   const detail = lastDataError ? ` (${escapeHtml(lastDataError)})` : '';
   const localNote = location.protocol === 'file:' ? ' 로컬 파일에서는 샘플 데이터가 표시됩니다.' : '';
   banner.innerHTML = `공유 DB에 연결하지 못했습니다.${detail}${localNote} <button type="button" onclick="retryData()">다시 연결</button>`;
@@ -147,7 +161,7 @@ function render(){
   else if(r === 'members') members();
   else if(r === 'records') records();
   else if(r === 'write-record') writeRecordPage();
-  else if(r.startsWith('book/')) bookDetail(r.split('/')[1]);
+  else if(r.startsWith('book/')) bookDetail(decodeURIComponent(r.split('/').slice(1).join('/')));
   else if(r.startsWith('member/')) memberDetail(decodeURIComponent(r.split('/').slice(1).join('/')));
   else if(r.startsWith('record-edit/')) recordEditPage(decodeURIComponent(r.split('/')[1]));
   else if(r.startsWith('record/')) recordDetail(decodeURIComponent(r.split('/')[1]));
@@ -157,7 +171,7 @@ function render(){
   window.scrollTo({top:0, behavior:'instant'});
 }
 
-function navButton(text, href){ return `<button class="link-button" onclick="location.hash='${href}'">${text}</button>`; }
+function navButton(text, href){ return `<button class="link-button" type="button" onclick="navigate('#${href}')">${text}</button>`; }
 
 function home(){
   app.innerHTML = `
@@ -191,12 +205,12 @@ function coverMarkup(item, className='book-cover'){
 }
 
 function bookCard(b){
-  return `<article class="book-card" onclick="location.hash='book/${encodeURIComponent(b.id)}'">
+  return `<article class="book-card" onclick="navigate('#book/${encodeURIComponent(b.id)}')">
     ${coverMarkup(b)}
     <div class="book-meta"><span class="status">${escapeHtml(b.status)}</span>
       <h3>${escapeHtml(b.title)}</h3><p>${escapeHtml(b.author)}</p>
       <div class="tags"><span class="tag">${b.participants.length}명 참여</span>
-      <span class="tag">${data.records.filter(r=>r.book===b.id).length}개 기록</span></div>
+      <span class="tag">${data.records.filter(r=>normalizeBookId(r.book)===normalizeBookId(b.id)).length}개 기록</span></div>
     </div>
   </article>`;
 }
@@ -205,19 +219,20 @@ function bookCard(b){
 function bookDetail(id){
   const b = book(id);
   if(!b){
-    app.innerHTML = `<div class="empty">책 정보를 찾을 수 없습니다.<br><button class="secondary" onclick="location.hash='books'">책 목록으로 돌아가기</button></div>`;
+    app.innerHTML = `<div class="empty">책 정보를 찾을 수 없습니다.<br><button class="secondary" onclick="navigate('#books')">책 목록으로 돌아가기</button></div>`;
     return;
   }
 
   const user = getUser();
-  const participated = !!user && b.participants.some(name => String(name) === String(user.name));
-  const rs = data.records.filter(r => String(r.book) === String(b.id))
+  const participants = Array.isArray(b.participants) ? b.participants : [];
+  const participated = !!user && participants.some(name => String(name) === String(user.name));
+  const rs = data.records.filter(r => normalizeBookId(r.book) === normalizeBookId(b.id))
     .sort((a,b)=>String(b.date).localeCompare(String(a.date)));
-  const ms = data.meetings.filter(m => String(m.book) === String(b.id))
+  const ms = data.meetings.filter(m => normalizeBookId(m.book) === normalizeBookId(b.id))
     .sort((a,b)=>String(b.date).localeCompare(String(a.date)));
 
   app.innerHTML = `
-    <button class="back" onclick="location.hash='books'">← 책 목록으로 돌아가기</button>
+    <button class="back" onclick="navigate('#books')">← 책 목록으로 돌아가기</button>
     <section class="detail-header">
       ${coverMarkup(b,'detail-cover')}
       <div class="detail-info">
@@ -227,7 +242,7 @@ function bookDetail(id){
         <div class="info-row">
           <span class="status">${escapeHtml(b.status)}</span>
           <span class="pill">모임일: ${escapeHtml(b.date || '미정')}</span>
-          <span class="pill">${b.participants.length}명 참여</span>
+          <span class="pill">${participants.length}명 참여</span>
           <span class="pill">${rs.length}개 기록</span>
         </div>
         <div class="action-row">
@@ -245,7 +260,7 @@ function bookDetail(id){
         <section class="section">
           <div class="section-head"><div><h2>참여자</h2><p>${b.participants.length}명</p></div></div>
           <div class="member-list">
-            ${b.participants.map(p=>`<span class="member-chip">${escapeHtml(p)}</span>`).join('') || '<div class="empty">아직 참여자가 없습니다.</div>'}
+            ${participants.map(p=>`<span class="member-chip">${escapeHtml(p)}</span>`).join('') || '<div class="empty">아직 참여자가 없습니다.</div>'}
           </div>
         </section>
 
@@ -315,7 +330,7 @@ async function saveBookEdit(e,b){
   e.preventDefault();
   const msg=document.getElementById('editBookMessage');
   const user=getUser();
-  if(!user){location.hash='login';return;}
+  if(!user){navigate('#login');return;}
   if(!sharedDbAvailable){msg.textContent='공유 DB에 연결된 상태에서만 수정할 수 있습니다.';return;}
   const title=document.getElementById('editBookTitle').value.trim();
   const author=document.getElementById('editBookAuthor').value.trim();
@@ -356,7 +371,7 @@ async function participateBook(bookId){
   const user=getUser();
   const msgId='bookActionMessage';
   const b=data.books.find(x=>String(x.book_id)===String(bookId));
-  if(!user){location.hash='login';return;}
+  if(!user){navigate('#login');return;}
   if(!b)return;
   if(b.participants.some(name=>String(name)===String(user.name)))return;
   try{
@@ -418,7 +433,7 @@ function fileToDataUrl(file){return new Promise((resolve,reject)=>{const r=new F
 async function saveBook(e){
   e.preventDefault();
   const user=getUser(), msg=document.getElementById('bookMessage');
-  if(!user){location.hash='login';return;}
+  if(!user){navigate('#login');return;}
   if(!sharedDbAvailable){msg.textContent='공유 DB에 연결된 상태에서만 책을 등록할 수 있습니다. 먼저 다시 연결해주세요.';return;}
   const title=document.getElementById('bookTitle').value.trim();
   const author=document.getElementById('bookAuthor').value.trim();
@@ -435,7 +450,7 @@ async function saveBook(e){
     const result=await response.json();
     if(!result.ok) throw new Error(result.error||'책 등록에 실패했습니다.');
     await fetchData();
-    location.hash=`book/book-${encodeURIComponent(result.book_id)}`;
+    navigate(`#book/book-${encodeURIComponent(result.book_id)}`);
   }catch(error){msg.textContent=`등록하지 못했습니다: ${error.message||error}`;}
 }
 
@@ -452,10 +467,10 @@ function records(){
 function recordCard(r){
   const b=book(r.book), user=getUser(), mine=!!user && String(r.member_id)===String(user.id);
   const ownerActions=mine ? `<div class="record-owner-actions">
-    <button type="button" onclick="event.stopPropagation();location.hash='record-edit/${encodeURIComponent(r.id)}'">수정</button>
+    <button type="button" onclick="event.stopPropagation();navigate('#record-edit/${encodeURIComponent(r.id)}')">수정</button>
     <button type="button" onclick="event.stopPropagation();deleteRecordPrompt(${JSON.stringify(r.id)})">삭제</button>
   </div>` : '';
-  return `<article class="record-card" onclick="location.hash='record/${encodeURIComponent(r.id)}'">
+  return `<article class="record-card" onclick="navigate('#record/${encodeURIComponent(r.id)}')">
     <div class="record-top"><div><strong>${escapeHtml(r.author)}</strong><div class="record-book">${escapeHtml(b?.title||'알 수 없는 책')}</div></div>
     <span class="tag">${escapeHtml(r.date)}</span></div>
     <p class="excerpt">${escapeHtml(r.body)}</p>${ownerActions}</article>`;
@@ -465,19 +480,19 @@ function recordDetail(id){
   const r=data.records.find(x=>String(x.id)===String(id));
   if(!r) return records();
   const b=book(r.book), user=getUser(), mine=!!user && String(r.member_id)===String(user.id);
-  app.innerHTML=`<button class="back" onclick="location.hash='records'">← 독서 기록 목록</button>
+  app.innerHTML=`<button class="back" onclick="navigate('#records')">← 독서 기록 목록</button>
   <div class="page-title"><div class="eyebrow">READING NOTE</div><h1>${escapeHtml(r.title)}</h1>
   <p>${escapeHtml(r.author)} · ${escapeHtml(r.date)} · ${escapeHtml(b?.title||'')}</p></div>
   <article class="record-full"><h3>${escapeHtml(r.author)}</h3><div class="date">${escapeHtml(r.date)}</div>
   <div class="record-body">${escapeHtml(r.body)}</div></article>
-  <div class="action-row"><button class="primary" onclick="location.hash='book/${encodeURIComponent(r.book)}'">책 페이지로 이동</button>${mine?`<button class="secondary" onclick="location.hash='record-edit/${encodeURIComponent(r.id)}'">✎ 수정</button><button class="danger-button" onclick="deleteRecordPrompt(${JSON.stringify(r.id)})">삭제</button>`:''}</div>`;
+  <div class="action-row"><button class="primary" onclick="navigate('#book/${encodeURIComponent(r.book)}')">책 페이지로 이동</button>${mine?`<button class="secondary" onclick="navigate('#record-edit/${encodeURIComponent(r.id)}')">✎ 수정</button><button class="danger-button" onclick="deleteRecordPrompt(${JSON.stringify(r.id)})">삭제</button>`:''}</div>`;
 }
 
 function recordEditPage(id){
   const r=data.records.find(x=>String(x.id)===String(id)), user=getUser();
-  if(!user){location.hash='login';return;}
-  if(!r || String(r.member_id)!==String(user.id)){alert('본인이 작성한 기록만 수정할 수 있습니다.');location.hash='records';return;}
-  app.innerHTML=`<button class="back" onclick="location.hash='record/${encodeURIComponent(r.id)}'">← 기록으로 돌아가기</button>
+  if(!user){navigate('#login');return;}
+  if(!r || String(r.member_id)!==String(user.id)){alert('본인이 작성한 기록만 수정할 수 있습니다.');navigate('#records');return;}
+  app.innerHTML=`<button class="back" onclick="navigate('#record/${encodeURIComponent(r.id)}')">← 기록으로 돌아가기</button>
   <div class="page-title"><div class="eyebrow">EDIT READING NOTE</div><h1>독서 기록 수정</h1><p>작성자: ${escapeHtml(user.name)}</p></div>
   <div class="auth-card wide"><form id="recordEditForm" class="auth-form">
     <label>책<input disabled value="${escapeHtml(book(r.book)?.title||'알 수 없는 책')}"></label>
@@ -495,6 +510,7 @@ async function saveRecordEdit(e,r){
   const msg=document.getElementById('editRecordMessage');
   if(!sharedDbAvailable){msg.textContent='공유 DB에 연결된 상태에서만 수정할 수 있습니다.';return;}
   const body=document.getElementById('editRecordContent').value.trim(), title=document.getElementById('editRecordTitle').value.trim(), date=document.getElementById('editRecordDate').value;
+  if(!date){msg.textContent='작성일을 입력해주세요.';return;}
   if(!body){msg.textContent='기록 내용을 입력해주세요.';return;}
   msg.textContent='수정 내용을 저장하는 중...';
   try{
@@ -502,14 +518,14 @@ async function saveRecordEdit(e,r){
     const result=await response.json();
     if(!result.ok)throw new Error(result.error||'수정에 실패했습니다.');
     await fetchData();
-    location.hash=`record/${encodeURIComponent(r.id)}`;
+    navigate(`#record/${encodeURIComponent(r.id)}`);
   }catch(error){msg.textContent=`수정하지 못했습니다: ${error.message||error}`;}
 }
 
 async function deleteRecordPrompt(id){
   const r=data.records.find(x=>String(x.id)===String(id)), user=getUser();
   if(!r){alert('삭제할 기록을 찾을 수 없습니다.');return;}
-  if(!user){location.hash='login';return;}
+  if(!user){navigate('#login');return;}
   if(String(r.member_id)!==String(user.id)){
     alert('본인이 작성한 기록만 삭제할 수 있습니다.');
     return;
@@ -525,7 +541,7 @@ async function deleteRecordPrompt(id){
     const result=await response.json();
     if(!result.ok)throw new Error(result.error||'삭제에 실패했습니다.');
     await fetchData();
-    location.hash='records';
+    navigate('#records');
   }catch(error){
     alert(`삭제하지 못했습니다: ${error.message||error}`);
   }
@@ -534,7 +550,7 @@ window.deleteRecordPrompt = deleteRecordPrompt;
 
 function writeRecordPage(){
   const user=getUser();
-  if(!user){ location.hash='login'; return; }
+  if(!user){ navigate('#login'); return; }
   app.innerHTML=`<div class="page-title"><div class="eyebrow">READING NOTE</div><h1>독서 기록 작성</h1>
   <p>작성자는 현재 로그인한 회원으로 자동 지정됩니다. 저장하면 모든 회원이 볼 수 있습니다.</p></div>
   <div class="auth-card wide">
@@ -573,7 +589,7 @@ async function login(e){
     if(!result.ok) throw new Error(result.error || '등록되지 않은 군번입니다.');
     setUser({id:result.member.id,name:result.member.name,cohort:result.member.cohort,service_number:serviceNumber});
     await fetchData();
-    location.hash='home';
+    navigate('#home');
   }catch(error){
     msg.textContent = error.message || '로그인에 실패했습니다.';
   }
@@ -583,7 +599,7 @@ async function saveRecord(e){
   e.preventDefault();
   const user=getUser();
   const msg=document.getElementById('recordMessage');
-  if(!user){location.hash='login';return;}
+  if(!user){navigate('#login');return;}
   if(!sharedDbAvailable){msg.textContent='공유 DB에 연결된 상태에서만 기록을 저장할 수 있습니다. 먼저 다시 연결해주세요.';return;}
   if(!data.books.length){msg.textContent='등록된 책이 없습니다. 책을 먼저 등록해주세요.';return;}
   const bookId=document.getElementById('recordBook').value;
@@ -643,12 +659,12 @@ function bookText(id){
   return `북치킨클럽 - ${b.title}\n========================\n\n책 정보\n--------\n제목: ${b.title}\n저자: ${b.author}\n모임일: ${b.date}\n상태: ${b.status}\n\n참여자\n--------\n${b.participants.join('\n')||'(없음)'}\n\n${rs.map(r=>`[${r.author}의 독서 기록]\n------------------------\n작성일: ${r.date}\n제목: ${r.title}\n\n${r.body}`).join('\n\n')}\n\n[모임 회의록]\n------------------------\n${ms.map(m=>`${m.date} ${m.title}\n\n${m.body}`).join('\n\n')||'(없음)'}\n`;
 }
 function download(name,text){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'text/plain;charset=utf-8'}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
-function downloadBook(id){const decoded=decodeURIComponent(id);const b=book(decoded);if(b)download(`북치킨클럽_${b.title}.txt`,bookText(decoded));}
+function downloadBook(id){const decoded=decodeURIComponent(id);const b=book(decoded);if(b)download(`북치킨클럽_${b.title}.txt`,bookText(b.id));}
 function downloadAll(){download('북치킨클럽_전체기록.txt',data.books.map(b=>bookText(b.id)).join('\n\n\n'));}
 
 document.getElementById('menuButton')?.addEventListener('click',()=>document.getElementById('mobileNav')?.classList.toggle('open'));
 document.querySelectorAll('[data-route]').forEach(x=>x.addEventListener('click',()=>location.hash=x.dataset.route));
-document.getElementById('logoutButton')?.addEventListener('click',()=>{setUser(null);location.hash='home';});
+document.getElementById('logoutButton')?.addEventListener('click',()=>{setUser(null);navigate('#home');});
 
 window.addEventListener('hashchange',render);
 if('serviceWorker' in navigator) window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
