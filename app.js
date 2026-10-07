@@ -67,6 +67,7 @@ function render(){
   else if(r === 'members') members();
   else if(r === 'records') records();
   else if(r === 'write-record') writeRecordPage();
+  else if(r === 'add-book') addBookPage();
   else if(r.startsWith('book/')) bookDetail(r.split('/')[1]);
   else if(r.startsWith('member/')) memberDetail(decodeURIComponent(r.split('/').slice(1).join('/')));
   else if(r.startsWith('record/')) recordDetail(decodeURIComponent(r.split('/')[1]));
@@ -101,9 +102,15 @@ function home(){
     </section>`;
 }
 
+function coverMarkup(b, detail=false){
+  if(b.cover && /^https?:\/\//i.test(b.cover)){
+    return `<div class="${detail?'detail-cover':'book-cover'} image-cover"><img src="${escapeHtml(b.cover)}" alt="${escapeHtml(b.title)} 표지" loading="lazy"><span class="cover-title-overlay">${escapeHtml(b.title)}</span></div>`;
+  }
+  return `<div class="${detail?'detail-cover':'book-cover'} ${escapeHtml(b.cover||'green')}">${escapeHtml(b.title)}</div>`;
+}
 function bookCard(b){
   return `<article class="book-card" onclick="location.hash='book/${encodeURIComponent(b.id)}'">
-    <div class="book-cover ${escapeHtml(b.cover)}">${escapeHtml(b.title)}</div>
+    ${coverMarkup(b)}
     <div class="book-meta"><span class="status">${escapeHtml(b.status)}</span>
       <h3>${escapeHtml(b.title)}</h3><p>${escapeHtml(b.author)}</p>
       <div class="tags"><span class="tag">${b.participants.length}명 참여</span>
@@ -115,7 +122,8 @@ function bookCard(b){
 function books(){
   const statuses=['읽는 중','읽은 책','읽을 책'];
   app.innerHTML=`<div class="page-title"><div class="eyebrow">BOOK ARCHIVE</div><h1>등록된 책</h1>
-  <p>북치킨클럽에서 함께 읽은 책과 앞으로 읽을 책을 한곳에서 찾아볼 수 있습니다.</p></div>
+  <p>북치킨클럽에서 함께 읽은 책과 앞으로 읽을 책을 한곳에서 찾아볼 수 있습니다.</p>
+  ${getUser()?'<div class="action-row"><button class="primary" onclick="location.hash=\'add-book\'">+ 책 추가</button></div>':''}</div>
   <div class="stats"><div class="stat"><strong>${data.books.length}</strong><span>전체 책</span></div>
   <div class="stat"><strong>${data.books.filter(b=>b.status==='읽는 중').length}</strong><span>읽는 중</span></div>
   <div class="stat"><strong>${data.books.filter(b=>b.status==='읽은 책').length}</strong><span>읽은 책</span></div></div>
@@ -173,7 +181,7 @@ function bookDetail(id){
   const rs=data.records.filter(r=>r.book===id);
   const ms=data.meetings.filter(m=>m.book===id);
   app.innerHTML=`<button class="back" onclick="location.hash='books'">← 책 목록</button>
-  <section class="detail-header"><div class="detail-cover ${escapeHtml(b.cover)}">${escapeHtml(b.title)}</div>
+  <section class="detail-header">${coverMarkup(b,true)}
   <div class="detail-info"><div class="eyebrow">BOOK</div><h1>${escapeHtml(b.title)}</h1>
   <div class="author">${escapeHtml(b.author)}</div><span class="status">${escapeHtml(b.status)}</span>
   <div class="info-row"><span class="pill">모임일 ${escapeHtml(b.date)}</span><span class="pill">참여자 ${b.participants.length}명</span>
@@ -181,7 +189,8 @@ function bookDetail(id){
   <div class="action-row"><button class="primary" onclick="downloadBook('${encodeURIComponent(id)}')">↓ 이 책의 기록 .txt</button>
   ${getUser()?`<button class="secondary" onclick="location.hash='write-record'">+ 독서 기록 작성</button>`:''}</div></div></section>
   <div class="content-grid"><div><section class="section"><div class="section-head"><h2>참여자</h2></div>
-  <div class="member-list">${b.participants.map(n=>{const m=data.members.find(x=>x.name===n);return m?`<span class="member-chip"><button onclick="location.hash='member/${encodeURIComponent(m.id)}'">${escapeHtml(n)}</button></span>`:`<span class="member-chip">${escapeHtml(n)}</span>`}).join('')||'<span class="muted">아직 참여자가 없습니다.</span>'}</div></section>
+  <div class="member-list">${b.participants.map(n=>{const m=data.members.find(x=>x.name===n);return m?`<span class="member-chip"><button onclick="location.hash='member/${encodeURIComponent(m.id)}'">${escapeHtml(n)}</button></span>`:`<span class="member-chip">${escapeHtml(n)}</span>`}).join('')||'<span class="muted">아직 참여자가 없습니다.</span>'}
+  ${getUser() && !b.participants.includes(getUser().name)?'<button class="secondary join-button" onclick="joinBook(\''+encodeURIComponent(id)+'\',this)">+ 참여하기</button>':''}</div></section>
   <section class="section"><div class="section-head"><h2>독서 기록</h2><span>${rs.length}개</span></div>
   <div class="list">${rs.map(recordCard).join('')||'<div class="empty">등록된 독서 기록이 없습니다.</div>'}</div></section></div>
   <aside><section class="section"><div class="section-head"><h2>모임 회의록</h2></div>
@@ -216,6 +225,60 @@ function writeRecordPage(){
     </form>
   </div>`;
   document.getElementById('recordForm').addEventListener('submit', saveRecord);
+}
+
+
+function addBookPage(){
+  const user=getUser();
+  if(!user){ location.hash='login'; return; }
+  app.innerHTML=`<button class="back" onclick="location.hash='books'">← 책 목록</button>
+  <div class="page-title"><div class="eyebrow">BOOK ARCHIVE</div><h1>책 추가</h1>
+  <p>새 책을 등록하면 내가 자동으로 참여자로 등록됩니다.</p></div>
+  <div class="auth-card wide"><form id="bookForm" class="auth-form">
+    <label>책 제목<input id="bookTitle" required placeholder="예: 노르웨이의 숲"></label>
+    <label>저자<input id="bookAuthor" required placeholder="예: 무라카미 하루키"></label>
+    <label>상태<select id="bookStatus"><option>읽을 책</option><option>읽는 중</option><option>읽은 책</option></select></label>
+    <label>모임일 <input id="bookMeetingDate" type="date"></label>
+    <label>책 표지 <input id="bookCover" type="file" accept="image/jpeg,image/png,image/webp,image/gif"><small class="form-help">JPG, PNG, WEBP, GIF · 8MB 이하</small></label>
+    <div id="coverPreview" class="cover-preview" hidden></div>
+    <button class="primary-button" type="submit">책 등록</button><p id="bookMessage" class="form-message"></p>
+  </form></div>`;
+  const file=document.getElementById('bookCover');
+  file.addEventListener('change',()=>{
+    const f=file.files?.[0], preview=document.getElementById('coverPreview');
+    if(!f){preview.hidden=true;preview.innerHTML='';return;}
+    if(f.size>8*1024*1024){file.value='';preview.hidden=true;document.getElementById('bookMessage').textContent='표지는 8MB 이하로 선택해주세요.';return;}
+    const reader=new FileReader(); reader.onload=()=>{preview.hidden=false;preview.innerHTML=`<img src="${reader.result}" alt="표지 미리보기">`;}; reader.readAsDataURL(f);
+  });
+  document.getElementById('bookForm').addEventListener('submit',saveBook);
+}
+function fileToBase64(file){
+  return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(file);});
+}
+async function saveBook(e){
+  e.preventDefault();
+  const user=getUser(); if(!user){location.hash='login';return;}
+  const msg=document.getElementById('bookMessage'); msg.textContent='책을 등록하는 중...';
+  const file=document.getElementById('bookCover').files?.[0];
+  try{
+    const cover=file?await fileToBase64(file):'';
+    const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({
+      action:'addBook',title:document.getElementById('bookTitle').value.trim(),author:document.getElementById('bookAuthor').value.trim(),status:document.getElementById('bookStatus').value,
+      meeting_date:document.getElementById('bookMeetingDate').value || '미정',member_id:user.id,cover_base64:cover,cover_type:file?.type||''
+    })});
+    const result=await response.json(); if(!result.ok) throw new Error(result.error||'등록에 실패했습니다.');
+    await fetchData(); msg.textContent='책을 등록했습니다.'; location.hash=`book/book-${encodeURIComponent(result.book_id)}`;
+  }catch(error){msg.textContent=`등록하지 못했습니다: ${error.message||error}`;}
+}
+async function joinBook(id,button){
+  const user=getUser(); if(!user){location.hash='login';return;}
+  const decoded=decodeURIComponent(id); const b=book(decoded); if(!b)return;
+  button.disabled=true; button.textContent='참여 처리 중...';
+  try{
+    const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'addBookMember',book_id:b.book_id,member_id:user.id,role:'participant'})});
+    const result=await response.json(); if(!result.ok) throw new Error(result.error||'참여에 실패했습니다.');
+    await fetchData(); render();
+  }catch(error){button.disabled=false;button.textContent='+ 참여하기';alert(error.message||'참여에 실패했습니다.');}
 }
 
 function loginPage(){
