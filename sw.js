@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bookchickenclub-v0-7-4-shell';
+const CACHE_NAME = 'bookchickenclub-v0-7-5-shell';
 const ASSETS = ['./','./index.html','./styles.css','./app.js','./manifest.json'];
 
 self.addEventListener('install', event => {
@@ -18,6 +18,7 @@ self.addEventListener('fetch', event => {
   if(request.method !== 'GET') return;
   const url = new URL(request.url);
   if(url.origin !== self.location.origin) return;
+  if(url.pathname.endsWith('/sw.js')) return;
   event.respondWith(
     fetch(request)
       .then(response => {

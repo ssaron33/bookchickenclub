@@ -468,7 +468,7 @@ function recordCard(r){
   const b=book(r.book), user=getUser(), mine=!!user && String(r.member_id)===String(user.id);
   const ownerActions=mine ? `<div class="record-owner-actions">
     <button type="button" onclick="event.stopPropagation();navigate('#record-edit/${encodeURIComponent(r.id)}')">수정</button>
-    <button type="button" onclick="event.stopPropagation();deleteRecordPrompt(${JSON.stringify(r.id)})">삭제</button>
+    <button type="button" data-delete-record="${escapeHtml(r.id)}">삭제</button>
   </div>` : '';
   return `<article class="record-card" onclick="navigate('#record/${encodeURIComponent(r.id)}')">
     <div class="record-top"><div><strong>${escapeHtml(r.author)}</strong><div class="record-book">${escapeHtml(b?.title||'알 수 없는 책')}</div></div>
@@ -485,7 +485,7 @@ function recordDetail(id){
   <p>${escapeHtml(r.author)} · ${escapeHtml(r.date)} · ${escapeHtml(b?.title||'')}</p></div>
   <article class="record-full"><h3>${escapeHtml(r.author)}</h3><div class="date">${escapeHtml(r.date)}</div>
   <div class="record-body">${escapeHtml(r.body)}</div></article>
-  <div class="action-row"><button class="primary" onclick="navigate('#book/${encodeURIComponent(r.book)}')">책 페이지로 이동</button>${mine?`<button class="secondary" onclick="navigate('#record-edit/${encodeURIComponent(r.id)}')">✎ 수정</button><button class="danger-button" onclick="deleteRecordPrompt(${JSON.stringify(r.id)})">삭제</button>`:''}</div>`;
+  <div class="action-row"><button class="primary" onclick="navigate('#book/${encodeURIComponent(r.book)}')">책 페이지로 이동</button>${mine?`<button class="secondary" onclick="navigate('#record-edit/${encodeURIComponent(r.id)}')">✎ 수정</button><button class="danger-button" data-delete-record="${escapeHtml(r.id)}">삭제</button>`:''}</div>`;
 }
 
 function recordEditPage(id){
@@ -665,9 +665,16 @@ function downloadAll(){download('북치킨클럽_전체기록.txt',data.books.ma
 document.getElementById('menuButton')?.addEventListener('click',()=>document.getElementById('mobileNav')?.classList.toggle('open'));
 document.querySelectorAll('[data-route]').forEach(x=>x.addEventListener('click',()=>location.hash=x.dataset.route));
 document.getElementById('logoutButton')?.addEventListener('click',()=>{setUser(null);navigate('#home');});
+document.addEventListener('click',(event)=>{
+  const button=event.target.closest('[data-delete-record]');
+  if(!button) return;
+  event.preventDefault();
+  event.stopPropagation();
+  deleteRecordPrompt(button.getAttribute('data-delete-record'));
+});
 
 window.addEventListener('hashchange',render);
-if('serviceWorker' in navigator) window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+if('serviceWorker' in navigator) window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js?v=0.7.5',{updateViaCache:'none'}).catch(()=>{}));
 
 (function initialLoading(){
   if(app) app.innerHTML='<div class="empty loading">공유 DB에서 북치킨클럽 데이터를 불러오는 중...</div>';
