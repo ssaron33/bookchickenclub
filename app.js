@@ -1,4 +1,4 @@
-// 북치킨클럽 v0.7 — 책/독서 기록 관리 개선
+// 북치킨클럽 v0.7.2 — 공유 DB 연결 판정 안정화
 const API_URL = 'https://script.google.com/macros/s/AKfycbxONtBlo8vsHmi8xdoOt5lJGHjnLOf6o3zPuIB1sYB3Gb2tb2EGe69ET-UFSal03y3K6A/exec';
 
 const data = {
@@ -53,7 +53,7 @@ async function fetchData(){
   let lastError = null;
   for(let attempt = 1; attempt <= 3; attempt++){
     try {
-      const url = `${API_URL}?action=data&client=v0.7.1&_=${Date.now()}-${attempt}`;
+      const url = `${API_URL}?action=data&client=v0.7.2&_=${Date.now()}-${attempt}`;
       const response = await fetch(url, {
         method: 'GET',
         cache: 'no-store',
@@ -66,20 +66,28 @@ async function fetchData(){
       const result = await response.json();
       console.info(`[북치킨클럽] 공유 DB 응답 ${attempt}/3`, result);
 
-      // 정상 응답은 ok=true와 네 개의 데이터 배열을 모두 포함한다.
-      if(result && result.ok === true &&
-         Array.isArray(result.books) &&
-         Array.isArray(result.members) &&
-         Array.isArray(result.records) &&
-         Array.isArray(result.meetings)){
-        copyData(result);
+      // Apps Script가 ok=true를 반환했다면 공유 DB 연결 자체는 성공한 것이다.
+      // 일부 컬렉션이 없거나 빈 값으로 반환되어도 연결 실패로 오판하지 않는다.
+      if(result && result.ok === true){
+        copyData({
+          books: Array.isArray(result.books) ? result.books : [],
+          members: Array.isArray(result.members) ? result.members : [],
+          records: Array.isArray(result.records) ? result.records : [],
+          meetings: Array.isArray(result.meetings) ? result.meetings : []
+        });
         sharedDbAvailable = true;
         lastDataError = '';
         dataLoading = false;
+        console.info('[북치킨클럽] 공유 DB 연결 성공', {
+          books: data.books.length,
+          members: data.members.length,
+          records: data.records.length,
+          meetings: data.meetings.length
+        });
         return true;
       }
 
-      throw new Error(result?.error || '공유 DB 응답 형식이 올바르지 않습니다.');
+      throw new Error(result?.error || '공유 DB 응답이 정상적으로 반환되지 않았습니다.');
     } catch(error) {
       lastError = error;
       console.warn(`[북치킨클럽] 공유 DB 연결 실패 ${attempt}/3`, error);
