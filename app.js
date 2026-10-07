@@ -45,28 +45,57 @@ function escapeHtml(value){
 
 async function fetchData(){
   dataLoading = true;
-  try {
-    const response = await fetch(`${API_URL}?action=data&_=${Date.now()}`, {cache:'no-store'});
-    if(!response.ok) throw new Error(`HTTP ${response.status}`);
-    const result = await response.json();
-    if(!result.ok) throw new Error(result.error || 'API 오류');
-    copyData(result);
-    sharedDbAvailable = true;
-    lastDataError = '';
-    return true;
-  } catch(error) {
-    sharedDbAvailable = false;
-    lastDataError = error?.message || '공유 DB에 연결할 수 없습니다.';
-    console.warn('공유 DB를 불러오지 못했습니다.', error);
-    // file://에서 오프라인 프로토타입을 직접 열 때만 샘플 데이터를 사용한다.
-    // GitHub Pages에서는 샘플 데이터를 실제 데이터처럼 보여주지 않는다.
-    if(location.protocol === 'file:') copyData(fallbackData);
-    else copyData({books:[], members:[], records:[], meetings:[]});
-    return false;
-  } finally {
-    dataLoading = false;
+  sharedDbAvailable = false;
+  lastDataError = '';
+
+  // Google Apps Script는 간혹 첫 요청에서 리다이렉트/네트워크 지연이 발생할 수 있으므로
+  // 짧게 재시도한다. API 자체가 정상이라면 첫 번째 또는 두 번째 요청에서 복구된다.
+  let lastError = null;
+  for(let attempt = 1; attempt <= 3; attempt++){
+    try {
+      const url = `${API_URL}?action=data&client=v0.7.1&_=${Date.now()}-${attempt}`;
+      const response = await fetch(url, {
+        method: 'GET',
+        cache: 'no-store',
+        redirect: 'follow',
+        credentials: 'omit'
+      });
+
+      if(!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const result = await response.json();
+      console.info(`[북치킨클럽] 공유 DB 응답 ${attempt}/3`, result);
+
+      // 정상 응답은 ok=true와 네 개의 데이터 배열을 모두 포함한다.
+      if(result && result.ok === true &&
+         Array.isArray(result.books) &&
+         Array.isArray(result.members) &&
+         Array.isArray(result.records) &&
+         Array.isArray(result.meetings)){
+        copyData(result);
+        sharedDbAvailable = true;
+        lastDataError = '';
+        dataLoading = false;
+        return true;
+      }
+
+      throw new Error(result?.error || '공유 DB 응답 형식이 올바르지 않습니다.');
+    } catch(error) {
+      lastError = error;
+      console.warn(`[북치킨클럽] 공유 DB 연결 실패 ${attempt}/3`, error);
+      if(attempt < 3) await new Promise(resolve => setTimeout(resolve, 400 * attempt));
+    }
   }
+
+  sharedDbAvailable = false;
+  lastDataError = lastError?.message || '공유 DB에 연결할 수 없습니다.';
+  // file://에서 오프라인 프로토타입을 직접 열 때만 샘플 데이터를 사용한다.
+  // GitHub Pages에서는 샘플 데이터를 실제 데이터처럼 보여주지 않는다.
+  if(location.protocol === 'file:') copyData(fallbackData);
+  else copyData({books:[], members:[], records:[], meetings:[]});
+  return false;
 }
+
 
 function showDataErrorIfNeeded(ok){
   const banner = document.getElementById('dataStatus');

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bookchickenclub-v0-7-shell';
+const CACHE_NAME = 'bookchickenclub-v0-7-1-shell';
 const ASSETS = [
   './',
   './index.html',
