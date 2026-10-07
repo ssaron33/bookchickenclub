@@ -1,4 +1,4 @@
-// 북치킨클럽 v0.7.2 — 공유 DB 연결 판정 안정화
+// 북치킨클럽 v0.7.3 — 라우팅/책 상세/기록 관리 안정화
 const API_URL = 'https://script.google.com/macros/s/AKfycbxONtBlo8vsHmi8xdoOt5lJGHjnLOf6o3zPuIB1sYB3Gb2tb2EGe69ET-UFSal03y3K6A/exec';
 
 const data = {
@@ -29,13 +29,27 @@ const app = document.getElementById('app');
 const route = () => location.hash.replace(/^#\/?/, '') || 'home';
 
 function copyData(source){
-  data.books = source.books || [];
-  data.members = source.members || [];
-  data.records = source.records || [];
-  data.meetings = source.meetings || [];
+  data.books = Array.isArray(source.books) ? source.books : [];
+  data.members = Array.isArray(source.members) ? source.members : [];
+  data.records = Array.isArray(source.records) ? source.records : [];
+  data.meetings = Array.isArray(source.meetings) ? source.meetings : [];
 }
 
-function book(id){ return data.books.find(x => x.id === id); }
+function book(id){
+  return data.books.find(x => String(x.id) === String(id));
+}
+
+function normalizeDateInput(value){
+  const s = String(value ?? '').trim();
+  if(!s || s === '미정') return '';
+  // Google Sheets에서 날짜가 2026.10.07 / 2026/10/07 등으로 들어오는 경우
+  let m = s.match(/^(\d{4})[.\/-](\d{1,2})[.\/-](\d{1,2})/);
+  if(m) return `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
+  // ISO datetime
+  m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if(m) return m[1];
+  return '';
+}
 
 function escapeHtml(value){
   return String(value ?? '').replace(/[&<>"']/g, ch => ({
@@ -187,6 +201,179 @@ function bookCard(b){
   </article>`;
 }
 
+
+function bookDetail(id){
+  const b = book(id);
+  if(!b){
+    app.innerHTML = `<div class="empty">책 정보를 찾을 수 없습니다.<br><button class="secondary" onclick="location.hash='books'">책 목록으로 돌아가기</button></div>`;
+    return;
+  }
+
+  const user = getUser();
+  const participated = !!user && b.participants.some(name => String(name) === String(user.name));
+  const rs = data.records.filter(r => String(r.book) === String(b.id))
+    .sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  const ms = data.meetings.filter(m => String(m.book) === String(b.id))
+    .sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+
+  app.innerHTML = `
+    <button class="back" onclick="location.hash='books'">← 책 목록으로 돌아가기</button>
+    <section class="detail-header">
+      ${coverMarkup(b,'detail-cover')}
+      <div class="detail-info">
+        <div class="eyebrow">BOOK DETAIL</div>
+        <h1>${escapeHtml(b.title)}</h1>
+        <div class="author">${escapeHtml(b.author)}</div>
+        <div class="info-row">
+          <span class="status">${escapeHtml(b.status)}</span>
+          <span class="pill">모임일: ${escapeHtml(b.date || '미정')}</span>
+          <span class="pill">${b.participants.length}명 참여</span>
+          <span class="pill">${rs.length}개 기록</span>
+        </div>
+        <div class="action-row">
+          ${user ? (participated
+            ? `<button class="secondary" disabled>✓ 참여 중</button>`
+            : `<button class="primary" onclick="participateBook('${escapeHtml(b.book_id)}')">+ 참여하기</button>`) : ''}
+          ${user ? `<button class="secondary" onclick="showEditBookForm('${escapeHtml(b.book_id)}')">✎ 책 정보 수정</button>` : ''}
+          <button class="secondary" onclick="downloadBook('${encodeURIComponent(b.id)}')">TXT 다운로드</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="content-grid">
+      <div>
+        <section class="section">
+          <div class="section-head"><div><h2>참여자</h2><p>${b.participants.length}명</p></div></div>
+          <div class="member-list">
+            ${b.participants.map(p=>`<span class="member-chip">${escapeHtml(p)}</span>`).join('') || '<div class="empty">아직 참여자가 없습니다.</div>'}
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head"><div><h2>독서 기록</h2><p>${rs.length}개</p></div></div>
+          <div class="list">${rs.map(recordCard).join('') || '<div class="empty">아직 독서 기록이 없습니다.</div>'}</div>
+        </section>
+
+        <section class="section">
+          <div class="section-head"><div><h2>모임 회의록</h2><p>${ms.length}개</p></div></div>
+          <div class="list">${ms.map(meetingCard).join('') || '<div class="empty">아직 회의록이 없습니다.</div>'}</div>
+        </section>
+      </div>
+    </section>
+    <div id="bookEditPanel"></div>`;
+}
+
+function meetingCard(m){
+  return `<article class="meeting-card">
+    <details>
+      <summary>${escapeHtml(m.date)} · ${escapeHtml(m.title)}</summary>
+      <p>${escapeHtml(m.body)}</p>
+    </details>
+  </article>`;
+}
+
+function showEditBookForm(bookId){
+  const b = book(bookId);
+  const panel = document.getElementById('bookEditPanel');
+  if(!b || !panel) return;
+  panel.innerHTML = `
+    <section class="section">
+      <div class="add-book-panel">
+        <div class="section-head">
+          <div><h2>책 정보 수정</h2><p>제목, 저자, 상태, 모임 날짜와 표지를 수정할 수 있습니다.</p></div>
+          <button class="back" type="button" onclick="document.getElementById('bookEditPanel').innerHTML=''">닫기</button>
+        </div>
+        <form id="bookEditForm" class="auth-form book-form">
+          <label>책 제목<input id="editBookTitle" required value="${escapeHtml(b.title)}"></label>
+          <label>저자<input id="editBookAuthor" required value="${escapeHtml(b.author)}"></label>
+          <label>상태<select id="editBookStatus">
+            ${['읽을 책','읽는 중','읽은 책'].map(s=>`<option ${b.status===s?'selected':''}>${s}</option>`).join('')}
+          </select></label>
+          <label>모임 날짜 <span class="optional">(선택)</span><input id="editBookMeetingDate" type="date" value="${escapeHtml(normalizeDateInput(b.date))}"></label>
+          <label>표지 교체 <span class="optional">(선택)</span><input id="editBookCover" type="file" accept="image/jpeg,image/png,image/webp,image/gif"></label>
+          <p class="form-hint">새 이미지를 선택하지 않으면 기존 표지를 유지합니다. JPG, PNG, WEBP, GIF · 최대 8MB</p>
+          <div id="editBookCoverPreview" class="cover-preview" hidden></div>
+          <button class="primary-button" type="submit">수정 내용 저장</button>
+          <p id="editBookMessage" class="form-message"></p>
+        </form>
+      </div>
+    </section>`;
+  document.getElementById('editBookCover').addEventListener('change', previewEditCover);
+  document.getElementById('bookEditForm').addEventListener('submit', e=>saveBookEdit(e,b));
+}
+
+function previewEditCover(e){
+  const file=e.target.files?.[0], preview=document.getElementById('editBookCoverPreview');
+  if(!preview) return;
+  if(!file){preview.hidden=true;return;}
+  if(file.size>8*1024*1024){e.target.value='';preview.hidden=true;alert('표지 이미지는 8MB 이하로 올려주세요.');return;}
+  preview.hidden=false;
+  preview.innerHTML=`<img src="${URL.createObjectURL(file)}" alt="표지 미리보기"><span>${escapeHtml(file.name)}</span>`;
+}
+
+async function saveBookEdit(e,b){
+  e.preventDefault();
+  const msg=document.getElementById('editBookMessage');
+  const user=getUser();
+  if(!user){location.hash='login';return;}
+  if(!sharedDbAvailable){msg.textContent='공유 DB에 연결된 상태에서만 수정할 수 있습니다.';return;}
+  const title=document.getElementById('editBookTitle').value.trim();
+  const author=document.getElementById('editBookAuthor').value.trim();
+  const status=document.getElementById('editBookStatus').value;
+  const meetingDate=document.getElementById('editBookMeetingDate').value || '미정';
+  const file=document.getElementById('editBookCover').files?.[0];
+  if(!title||!author){msg.textContent='책 제목과 저자를 입력해주세요.';return;}
+  if(file && file.size>8*1024*1024){msg.textContent='표지 이미지는 8MB 이하로 올려주세요.';return;}
+  msg.textContent='수정 내용을 저장하는 중...';
+  try{
+    let cover_base64='', cover_type='';
+    if(file){
+      const dataUrl=await fileToDataUrl(file);
+      cover_base64=dataUrl.split(',')[1];
+      cover_type=file.type;
+    }
+    const response=await fetch(API_URL,{
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({
+        action:'updateBook',
+        book_id:b.book_id,
+        title, author, status,
+        meeting_date:meetingDate,
+        cover_base64, cover_type
+      })
+    });
+    const result=await response.json();
+    if(!result.ok) throw new Error(result.error||'책 수정에 실패했습니다.');
+    await fetchData();
+    bookDetail(`book-${b.book_id}`);
+  }catch(error){
+    msg.textContent=`수정하지 못했습니다: ${error.message||error}`;
+  }
+}
+
+async function participateBook(bookId){
+  const user=getUser();
+  const msgId='bookActionMessage';
+  const b=data.books.find(x=>String(x.book_id)===String(bookId));
+  if(!user){location.hash='login';return;}
+  if(!b)return;
+  if(b.participants.some(name=>String(name)===String(user.name)))return;
+  try{
+    const response=await fetch(API_URL,{
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'addBookMember',book_id:bookId,member_id:user.id,role:'participant'})
+    });
+    const result=await response.json();
+    if(!result.ok)throw new Error(result.error||'참여 등록에 실패했습니다.');
+    await fetchData();
+    bookDetail(`book-${bookId}`);
+  }catch(error){
+    alert(`참여하지 못했습니다: ${error.message||error}`);
+  }
+}
+
 function books(){
   const statuses=['읽는 중','읽은 책','읽을 책'];
   const user=getUser();
@@ -295,7 +482,7 @@ function recordEditPage(id){
   <div class="auth-card wide"><form id="recordEditForm" class="auth-form">
     <label>책<input disabled value="${escapeHtml(book(r.book)?.title||'알 수 없는 책')}"></label>
     <label>작성자<input disabled value="${escapeHtml(user.name)}"></label>
-    <label>작성일<input id="editRecordDate" type="date" value="${escapeHtml(r.date)}"></label>
+    <label>작성일<input id="editRecordDate" type="date" value="${escapeHtml(normalizeDateInput(r.date))}"></label>
     <label>제목<input id="editRecordTitle" value="${escapeHtml(r.title||'')}"></label>
     <label>기록<textarea id="editRecordContent" rows="14" required>${escapeHtml(r.body)}</textarea></label>
     <button class="primary-button" type="submit">수정 내용 저장</button><p id="editRecordMessage" class="form-message"></p>
@@ -321,16 +508,29 @@ async function saveRecordEdit(e,r){
 
 async function deleteRecordPrompt(id){
   const r=data.records.find(x=>String(x.id)===String(id)), user=getUser();
-  if(!r||!user||String(r.member_id)!==String(user.id))return;
+  if(!r){alert('삭제할 기록을 찾을 수 없습니다.');return;}
+  if(!user){location.hash='login';return;}
+  if(String(r.member_id)!==String(user.id)){
+    alert('본인이 작성한 기록만 삭제할 수 있습니다.');
+    return;
+  }
+  if(!sharedDbAvailable){alert('공유 DB에 연결된 상태에서만 삭제할 수 있습니다.');return;}
   if(!confirm('이 독서 기록을 삭제할까요? 삭제하면 되돌릴 수 없습니다.'))return;
   try{
-    const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'deleteRecord',record_id:r.id,member_id:user.id})});
+    const response=await fetch(API_URL,{
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'deleteRecord',record_id:r.id,member_id:user.id})
+    });
     const result=await response.json();
     if(!result.ok)throw new Error(result.error||'삭제에 실패했습니다.');
     await fetchData();
     location.hash='records';
-  }catch(error){alert(`삭제하지 못했습니다: ${error.message||error}`);}
+  }catch(error){
+    alert(`삭제하지 못했습니다: ${error.message||error}`);
+  }
 }
+window.deleteRecordPrompt = deleteRecordPrompt;
 
 function writeRecordPage(){
   const user=getUser();
@@ -415,6 +615,10 @@ async function saveRecord(e){
   }
 }
 
+window.participateBook = participateBook;
+window.showEditBookForm = showEditBookForm;
+window.downloadBook = downloadBook;
+
 function getUser(){
   try{return JSON.parse(localStorage.getItem('bcc_user')||'null');}
   catch(e){return null;}
@@ -455,6 +659,6 @@ if('serviceWorker' in navigator) window.addEventListener('load',()=>navigator.se
 
 (async function init(){
   const ok=await fetchData();
-  showDataErrorIfNeeded(ok);
   render();
+  showDataErrorIfNeeded(ok);
 })();
