@@ -31,3 +31,11 @@ body:has(.route-page:not(#home):target) .static-routes .route-page:first-child {
 
 .data-status{margin:0 0 20px;padding:11px 14px;border:1px solid #e1c9a8;background:#fff7ea;color:#77562f;border-radius:12px;font-size:13px}
 .auth-card{box-sizing:border-box}
+
+
+/* v0.6 connection/update states */
+.data-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.data-status button{border:1px solid #c9b18e;background:transparent;color:inherit;border-radius:8px;padding:5px 9px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.data-status button:hover{background:#f3e7d5}
+.loading{min-height:120px;display:grid;place-items:center}
+.primary-button:disabled,.primary:disabled{opacity:.5;cursor:not-allowed}

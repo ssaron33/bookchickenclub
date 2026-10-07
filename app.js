@@ -8,6 +8,10 @@ const data = {
   meetings: []
 };
 
+let sharedDbAvailable = false;
+let lastDataError = '';
+let dataLoading = true;
+
 const fallbackData = {
   books: [
     {id:'book-b001', book_id:'b001', title:'노르웨이의 숲', author:'무라카미 하루키', status:'읽은 책', date:'미정', cover:'green', participants:['김정운 (869기)']}
@@ -40,17 +44,27 @@ function escapeHtml(value){
 }
 
 async function fetchData(){
+  dataLoading = true;
   try {
     const response = await fetch(`${API_URL}?action=data&_=${Date.now()}`, {cache:'no-store'});
     if(!response.ok) throw new Error(`HTTP ${response.status}`);
     const result = await response.json();
     if(!result.ok) throw new Error(result.error || 'API 오류');
     copyData(result);
+    sharedDbAvailable = true;
+    lastDataError = '';
     return true;
   } catch(error) {
-    console.warn('공유 DB를 불러오지 못했습니다. 로컬 샘플 데이터로 표시합니다.', error);
-    copyData(fallbackData);
+    sharedDbAvailable = false;
+    lastDataError = error?.message || '공유 DB에 연결할 수 없습니다.';
+    console.warn('공유 DB를 불러오지 못했습니다.', error);
+    // file://에서 오프라인 프로토타입을 직접 열 때만 샘플 데이터를 사용한다.
+    // GitHub Pages에서는 샘플 데이터를 실제 데이터처럼 보여주지 않는다.
+    if(location.protocol === 'file:') copyData(fallbackData);
+    else copyData({books:[], members:[], records:[], meetings:[]});
     return false;
+  } finally {
+    dataLoading = false;
   }
 }
 
@@ -58,6 +72,21 @@ function showDataErrorIfNeeded(ok){
   const banner = document.getElementById('dataStatus');
   if(!banner) return;
   banner.hidden = ok;
+  if(ok) return;
+  const detail = lastDataError ? ` (${escapeHtml(lastDataError)})` : '';
+  const localNote = location.protocol === 'file:' ? ' 로컬 파일에서는 샘플 데이터가 표시됩니다.' : '';
+  banner.innerHTML = `공유 DB에 연결하지 못했습니다.${detail}${localNote} <button type="button" onclick="retryData()">다시 연결</button>`;
+}
+
+async function retryData(){
+  const banner = document.getElementById('dataStatus');
+  if(banner){
+    banner.hidden = false;
+    banner.innerHTML = '공유 DB에 다시 연결하는 중...';
+  }
+  const ok = await fetchData();
+  render();
+  showDataErrorIfNeeded(ok);
 }
 
 function render(){
@@ -146,7 +175,7 @@ function showAddBookForm(){
       <label>책 표지 <span class="optional">(선택)</span><input id="bookCover" type="file" accept="image/jpeg,image/png,image/webp,image/gif"></label>
       <p class="form-hint">JPG, PNG, WEBP, GIF · 최대 8MB</p>
       <div id="bookCoverPreview" class="cover-preview" hidden></div>
-      <button class="primary-button" type="submit">책 등록하기</button>
+      <button class="primary-button" type="submit" ${sharedDbAvailable?'':'disabled'}>책 등록하기</button>
       <p id="bookMessage" class="form-message"></p>
     </form></div>`;
   const file=document.getElementById('bookCover');
@@ -165,6 +194,7 @@ async function saveBook(e){
   e.preventDefault();
   const user=getUser(), msg=document.getElementById('bookMessage');
   if(!user){location.hash='login';return;}
+  if(!sharedDbAvailable){msg.textContent='공유 DB에 연결된 상태에서만 책을 등록할 수 있습니다. 먼저 다시 연결해주세요.';return;}
   const title=document.getElementById('bookTitle').value.trim();
   const author=document.getElementById('bookAuthor').value.trim();
   const status=document.getElementById('bookStatus').value;
@@ -284,7 +314,7 @@ function writeRecordPage(){
       <label>작성자<input id="recordAuthor" disabled value="${escapeHtml(user.name)}"></label>
       <label>제목<input id="recordTitle" placeholder="예: 노르웨이의 숲 — 독서 기록"></label>
       <label>기록<textarea id="recordContent" rows="12" required placeholder="책을 읽고 남기고 싶은 내용을 적어주세요."></textarea></label>
-      <button class="primary-button" type="submit">공유 DB에 저장</button>
+      <button class="primary-button" type="submit" ${sharedDbAvailable && data.books.length?'':'disabled'}>공유 DB에 저장</button>
       <p id="recordMessage" class="form-message"></p>
     </form>
   </div>`;
@@ -325,6 +355,8 @@ async function saveRecord(e){
   const user=getUser();
   const msg=document.getElementById('recordMessage');
   if(!user){location.hash='login';return;}
+  if(!sharedDbAvailable){msg.textContent='공유 DB에 연결된 상태에서만 기록을 저장할 수 있습니다. 먼저 다시 연결해주세요.';return;}
+  if(!data.books.length){msg.textContent='등록된 책이 없습니다. 책을 먼저 등록해주세요.';return;}
   const bookId=document.getElementById('recordBook').value;
   const body=document.getElementById('recordContent').value.trim();
   const title=document.getElementById('recordTitle').value.trim();
@@ -387,6 +419,10 @@ document.getElementById('logoutButton')?.addEventListener('click',()=>{setUser(n
 
 window.addEventListener('hashchange',render);
 if('serviceWorker' in navigator) window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+
+(function initialLoading(){
+  if(app) app.innerHTML='<div class="empty loading">공유 DB에서 북치킨클럽 데이터를 불러오는 중...</div>';
+})();
 
 (async function init(){
   const ok=await fetchData();
