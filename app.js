@@ -1,5 +1,6 @@
 // 북치킨클럽 v0.7.4 — 공유 DB/라우팅/기록 관리 안정화
 const API_URL = 'https://script.google.com/macros/s/AKfycbxONtBlo8vsHmi8xdoOt5lJGHjnLOf6o3zPuIB1sYB3Gb2tb2EGe69ET-UFSal03y3K6A/exec';
+const APP_VERSION = '0.7.6';
 
 const data = {
   books: [],
@@ -467,8 +468,8 @@ function records(){
 function recordCard(r){
   const b=book(r.book), user=getUser(), mine=!!user && String(r.member_id)===String(user.id);
   const ownerActions=mine ? `<div class="record-owner-actions">
-    <button type="button" onclick="event.stopPropagation();navigate('#record-edit/${encodeURIComponent(r.id)}')">수정</button>
-    <button type="button" data-delete-record="${escapeHtml(r.id)}">삭제</button>
+    <button type="button" onclick="event.stopPropagation();navigate('#record-edit/${encodeURIComponent(r.id)}');return false;">수정</button>
+    <button type="button" onclick="event.stopPropagation();deleteRecordPrompt('${String(r.id).replace(/'/g,"\\'")}');return false;">삭제</button>
   </div>` : '';
   return `<article class="record-card" onclick="navigate('#record/${encodeURIComponent(r.id)}')">
     <div class="record-top"><div><strong>${escapeHtml(r.author)}</strong><div class="record-book">${escapeHtml(b?.title||'알 수 없는 책')}</div></div>
@@ -485,7 +486,7 @@ function recordDetail(id){
   <p>${escapeHtml(r.author)} · ${escapeHtml(r.date)} · ${escapeHtml(b?.title||'')}</p></div>
   <article class="record-full"><h3>${escapeHtml(r.author)}</h3><div class="date">${escapeHtml(r.date)}</div>
   <div class="record-body">${escapeHtml(r.body)}</div></article>
-  <div class="action-row"><button class="primary" onclick="navigate('#book/${encodeURIComponent(r.book)}')">책 페이지로 이동</button>${mine?`<button class="secondary" onclick="navigate('#record-edit/${encodeURIComponent(r.id)}')">✎ 수정</button><button class="danger-button" data-delete-record="${escapeHtml(r.id)}">삭제</button>`:''}</div>`;
+  <div class="action-row"><button class="primary" onclick="navigate('#book/${encodeURIComponent(r.book)}')">책 페이지로 이동</button>${mine?`<button class="secondary" onclick="navigate('#record-edit/${encodeURIComponent(r.id)}')">✎ 수정</button><button class="danger-button" type="button" onclick="deleteRecordPrompt('${String(r.id).replace(/'/g,"\\'")}');return false;">삭제</button>`:''}</div>`;
 }
 
 function recordEditPage(id){
@@ -665,16 +666,15 @@ function downloadAll(){download('북치킨클럽_전체기록.txt',data.books.ma
 document.getElementById('menuButton')?.addEventListener('click',()=>document.getElementById('mobileNav')?.classList.toggle('open'));
 document.querySelectorAll('[data-route]').forEach(x=>x.addEventListener('click',()=>location.hash=x.dataset.route));
 document.getElementById('logoutButton')?.addEventListener('click',()=>{setUser(null);navigate('#home');});
-document.addEventListener('click',(event)=>{
-  const button=event.target.closest('[data-delete-record]');
-  if(!button) return;
-  event.preventDefault();
-  event.stopPropagation();
-  deleteRecordPrompt(button.getAttribute('data-delete-record'));
-});
-
 window.addEventListener('hashchange',render);
-if('serviceWorker' in navigator) window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js?v=0.7.5',{updateViaCache:'none'}).catch(()=>{}));
+if('serviceWorker' in navigator) window.addEventListener('load',async()=>{
+  try{
+    const registration=await navigator.serviceWorker.register('sw.js?v=0.7.6',{updateViaCache:'none'});
+    await registration.update();
+  }catch(error){
+    console.warn('[북치킨클럽] 서비스 워커 업데이트 실패',error);
+  }
+});
 
 (function initialLoading(){
   if(app) app.innerHTML='<div class="empty loading">공유 DB에서 북치킨클럽 데이터를 불러오는 중...</div>';
