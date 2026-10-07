@@ -1,4 +1,4 @@
-// 북치킨클럽 v0.3 — Google Sheets 공유 DB 연동
+// 북치킨클럽 v0.7 — 책/독서 기록 관리 개선
 const API_URL = 'https://script.google.com/macros/s/AKfycbxONtBlo8vsHmi8xdoOt5lJGHjnLOf6o3zPuIB1sYB3Gb2tb2EGe69ET-UFSal03y3K6A/exec';
 
 const data = {
@@ -98,6 +98,7 @@ function render(){
   else if(r === 'write-record') writeRecordPage();
   else if(r.startsWith('book/')) bookDetail(r.split('/')[1]);
   else if(r.startsWith('member/')) memberDetail(decodeURIComponent(r.split('/').slice(1).join('/')));
+  else if(r.startsWith('record-edit/')) recordEditPage(decodeURIComponent(r.split('/')[1]));
   else if(r.startsWith('record/')) recordDetail(decodeURIComponent(r.split('/')[1]));
   else if(r === 'login') loginPage();
   else home();
@@ -225,82 +226,73 @@ function records(){
 }
 
 function recordCard(r){
-  const b=book(r.book);
+  const b=book(r.book), user=getUser(), mine=!!user && String(r.member_id)===String(user.id);
+  const ownerActions=mine ? `<div class="record-owner-actions">
+    <button type="button" onclick="event.stopPropagation();location.hash='record-edit/${encodeURIComponent(r.id)}'">수정</button>
+    <button type="button" onclick="event.stopPropagation();deleteRecordPrompt(${JSON.stringify(r.id)})">삭제</button>
+  </div>` : '';
   return `<article class="record-card" onclick="location.hash='record/${encodeURIComponent(r.id)}'">
     <div class="record-top"><div><strong>${escapeHtml(r.author)}</strong><div class="record-book">${escapeHtml(b?.title||'알 수 없는 책')}</div></div>
     <span class="tag">${escapeHtml(r.date)}</span></div>
-    <p class="excerpt">${escapeHtml(r.body)}</p></article>`;
-}
-
-function members(){
-  app.innerHTML=`<div class="page-title"><div class="eyebrow">MEMBERS</div><h1>회원 목록</h1>
-  <p>북치킨클럽 회원별로 참여한 책과 작성한 독서 기록을 확인할 수 있습니다.</p></div>
-  <div class="stats"><div class="stat"><strong>${data.members.length}</strong><span>전체 회원</span></div>
-  <div class="stat"><strong>${data.records.length}</strong><span>전체 독서 기록</span></div>
-  <div class="stat"><strong>${data.books.length}</strong><span>등록된 책</span></div></div>
-  <section class="section"><div class="list">${data.members.map(m=>{
-    const bs=data.books.filter(b=>b.participants.includes(m.name));
-    const rs=data.records.filter(r=>r.member_id===m.id);
-    return `<article class="member-card" onclick="location.hash='member/${encodeURIComponent(m.id)}'">
-      <div class="record-top"><div><strong>${escapeHtml(m.name)}</strong><div class="record-book">참여한 책 ${bs.length}권 · 독서 기록 ${rs.length}개</div></div><span class="link-button">보기 →</span></div></article>`;
-  }).join('')||'<div class="empty">등록된 회원이 없습니다.</div>'}</div></section>`;
-}
-
-function memberDetail(id){
-  const m=data.members.find(x=>x.id===id);
-  if(!m) return members();
-  const rs=data.records.filter(r=>r.member_id===id);
-  const bs=data.books.filter(b=>b.participants.includes(m.name));
-  app.innerHTML=`<button class="back" onclick="location.hash='members'">← 회원 목록</button>
-  <div class="page-title"><div class="eyebrow">MEMBER</div><h1>${escapeHtml(m.name)}</h1>
-  <p>${bs.length}권의 책에 참여 · ${rs.length}개의 독서 기록</p></div>
-  <section class="section"><div class="section-head"><h2>참여한 책</h2></div>
-  <div class="book-grid">${bs.map(bookCard).join('')||'<div class="empty">아직 참여한 책이 없습니다.</div>'}</div></section>
-  <section class="section"><div class="section-head"><h2>독서 기록</h2></div>
-  <div class="list">${rs.map(recordCard).join('')||'<div class="empty">아직 독서 기록이 없습니다.</div>'}</div></section>`;
-}
-
-function bookDetail(id){
-  const b=book(id); if(!b) return books();
-  const rs=data.records.filter(r=>r.book===id);
-  const ms=data.meetings.filter(m=>m.book===id);
-  app.innerHTML=`<button class="back" onclick="location.hash='books'">← 책 목록</button>
-  <section class="detail-header">${coverMarkup(b,'detail-cover')}
-  <div class="detail-info"><div class="eyebrow">BOOK</div><h1>${escapeHtml(b.title)}</h1>
-  <div class="author">${escapeHtml(b.author)}</div><span class="status">${escapeHtml(b.status)}</span>
-  <div class="info-row"><span class="pill">모임일 ${escapeHtml(b.date)}</span><span class="pill">참여자 ${b.participants.length}명</span>
-  <span class="pill">독서 기록 ${rs.length}개</span><span class="pill">회의록 ${ms.length}개</span></div>
-  <div class="action-row"><button class="primary" onclick="downloadBook('${encodeURIComponent(id)}')">↓ 이 책의 기록 .txt</button>
-  ${getUser()?`<button class="secondary" onclick="location.hash='write-record'">+ 독서 기록 작성</button>${b.participants.includes(getUser().name)?'':`<button class="secondary" onclick="joinBook('${encodeURIComponent(id)}')">+ 참여하기</button>`}`:''}</div></div></section>
-  <div class="content-grid"><div><section class="section"><div class="section-head"><h2>참여자</h2></div>
-  <div class="member-list">${b.participants.map(n=>{const m=data.members.find(x=>x.name===n);return m?`<span class="member-chip"><button onclick="location.hash='member/${encodeURIComponent(m.id)}'">${escapeHtml(n)}</button></span>`:`<span class="member-chip">${escapeHtml(n)}</span>`}).join('')||'<span class="muted">아직 참여자가 없습니다.</span>'}</div></section>
-  <section class="section"><div class="section-head"><h2>독서 기록</h2><span>${rs.length}개</span></div>
-  <div class="list">${rs.map(recordCard).join('')||'<div class="empty">등록된 독서 기록이 없습니다.</div>'}</div></section></div>
-  <aside><section class="section"><div class="section-head"><h2>모임 회의록</h2></div>
-  <div class="list">${ms.map(m=>`<article class="meeting-card"><details><summary>${escapeHtml(m.title)}<span class="tag" style="float:right">${escapeHtml(m.date)}</span></summary><p>${escapeHtml(m.body)}</p></details></article>`).join('')||'<div class="empty">등록된 회의록이 없습니다.</div>'}</div></section></aside></div>`;
-}
-
-async function joinBook(encodedId){
-  const user=getUser(); if(!user){location.hash='login';return;}
-  const id=decodeURIComponent(encodedId), b=book(id); if(!b)return;
-  try{
-    const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'addBookMember',book_id:b.book_id,member_id:user.id,role:'participant'})});
-    const result=await response.json();
-    if(!result.ok) throw new Error(result.error||'참여 처리에 실패했습니다.');
-    await fetchData(); render();
-  }catch(error){alert(error.message||'참여 처리에 실패했습니다.');}
+    <p class="excerpt">${escapeHtml(r.body)}</p>${ownerActions}</article>`;
 }
 
 function recordDetail(id){
   const r=data.records.find(x=>String(x.id)===String(id));
   if(!r) return records();
-  const b=book(r.book);
+  const b=book(r.book), user=getUser(), mine=!!user && String(r.member_id)===String(user.id);
   app.innerHTML=`<button class="back" onclick="location.hash='records'">← 독서 기록 목록</button>
   <div class="page-title"><div class="eyebrow">READING NOTE</div><h1>${escapeHtml(r.title)}</h1>
   <p>${escapeHtml(r.author)} · ${escapeHtml(r.date)} · ${escapeHtml(b?.title||'')}</p></div>
   <article class="record-full"><h3>${escapeHtml(r.author)}</h3><div class="date">${escapeHtml(r.date)}</div>
   <div class="record-body">${escapeHtml(r.body)}</div></article>
-  <div class="action-row"><button class="primary" onclick="location.hash='book/${encodeURIComponent(r.book)}'">책 페이지로 이동</button></div>`;
+  <div class="action-row"><button class="primary" onclick="location.hash='book/${encodeURIComponent(r.book)}'">책 페이지로 이동</button>${mine?`<button class="secondary" onclick="location.hash='record-edit/${encodeURIComponent(r.id)}'">✎ 수정</button><button class="danger-button" onclick="deleteRecordPrompt(${JSON.stringify(r.id)})">삭제</button>`:''}</div>`;
+}
+
+function recordEditPage(id){
+  const r=data.records.find(x=>String(x.id)===String(id)), user=getUser();
+  if(!user){location.hash='login';return;}
+  if(!r || String(r.member_id)!==String(user.id)){alert('본인이 작성한 기록만 수정할 수 있습니다.');location.hash='records';return;}
+  app.innerHTML=`<button class="back" onclick="location.hash='record/${encodeURIComponent(r.id)}'">← 기록으로 돌아가기</button>
+  <div class="page-title"><div class="eyebrow">EDIT READING NOTE</div><h1>독서 기록 수정</h1><p>작성자: ${escapeHtml(user.name)}</p></div>
+  <div class="auth-card wide"><form id="recordEditForm" class="auth-form">
+    <label>책<input disabled value="${escapeHtml(book(r.book)?.title||'알 수 없는 책')}"></label>
+    <label>작성자<input disabled value="${escapeHtml(user.name)}"></label>
+    <label>작성일<input id="editRecordDate" type="date" value="${escapeHtml(r.date)}"></label>
+    <label>제목<input id="editRecordTitle" value="${escapeHtml(r.title||'')}"></label>
+    <label>기록<textarea id="editRecordContent" rows="14" required>${escapeHtml(r.body)}</textarea></label>
+    <button class="primary-button" type="submit">수정 내용 저장</button><p id="editRecordMessage" class="form-message"></p>
+  </form></div>`;
+  document.getElementById('recordEditForm').addEventListener('submit',e=>saveRecordEdit(e,r));
+}
+
+async function saveRecordEdit(e,r){
+  e.preventDefault();
+  const msg=document.getElementById('editRecordMessage');
+  if(!sharedDbAvailable){msg.textContent='공유 DB에 연결된 상태에서만 수정할 수 있습니다.';return;}
+  const body=document.getElementById('editRecordContent').value.trim(), title=document.getElementById('editRecordTitle').value.trim(), date=document.getElementById('editRecordDate').value;
+  if(!body){msg.textContent='기록 내용을 입력해주세요.';return;}
+  msg.textContent='수정 내용을 저장하는 중...';
+  try{
+    const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'updateRecord',record_id:r.id,member_id:r.member_id,record_date:date,title:title||`${book(r.book)?.title||'책'} — 독서 기록`,body})});
+    const result=await response.json();
+    if(!result.ok)throw new Error(result.error||'수정에 실패했습니다.');
+    await fetchData();
+    location.hash=`record/${encodeURIComponent(r.id)}`;
+  }catch(error){msg.textContent=`수정하지 못했습니다: ${error.message||error}`;}
+}
+
+async function deleteRecordPrompt(id){
+  const r=data.records.find(x=>String(x.id)===String(id)), user=getUser();
+  if(!r||!user||String(r.member_id)!==String(user.id))return;
+  if(!confirm('이 독서 기록을 삭제할까요? 삭제하면 되돌릴 수 없습니다.'))return;
+  try{
+    const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'deleteRecord',record_id:r.id,member_id:user.id})});
+    const result=await response.json();
+    if(!result.ok)throw new Error(result.error||'삭제에 실패했습니다.');
+    await fetchData();
+    location.hash='records';
+  }catch(error){alert(`삭제하지 못했습니다: ${error.message||error}`);}
 }
 
 function writeRecordPage(){
