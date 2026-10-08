@@ -54,3 +54,11 @@ body:has(.route-page:not(#home):target) .static-routes .route-page:first-child {
 .record-owner-actions{display:flex;gap:7px;margin-top:12px}
 .record-owner-actions button{border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:9px;padding:6px 10px;font:inherit;font-size:12px;cursor:pointer}
 .record-owner-actions button:hover{background:var(--surface2);color:var(--text)}
+
+/* v0.8.0 cover fallback / meeting author / admin */
+.image-cover.cover-broken .cover-fallback{display:flex;align-items:flex-end;position:absolute;inset:0;padding:18px;background:linear-gradient(145deg,#e9e1d4,#d5c8b6);color:#332c22;font-family:Georgia,"Noto Serif KR",serif;font-size:21px;font-weight:700}
+.image-cover.cover-broken img{display:none}
+.cover-fallback{display:none}
+.meeting-author{display:block;color:var(--muted);font-size:12px;margin-bottom:6px}
+#memberAdminList .record-top{align-items:center}
+#memberAdminList .secondary{white-space:nowrap}

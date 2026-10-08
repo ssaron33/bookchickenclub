@@ -1,5 +1,12 @@
-const CACHE_NAME = 'bookchickenclub-v0-7-9-shell';
-const ASSETS = ['./','./index.html?v=0.7.9','./styles.css?v=0.7.9','./app.js?v=0.7.9','./manifest.json?v=0.7.9'];
+const APP_VERSION = '0.8.0';
+const CACHE_NAME = `bookchickenclub-v${APP_VERSION.replace(/\./g, '-')}-shell`;
+const ASSETS = [
+  './',
+  `./index.html?v=${APP_VERSION}`,
+  `./styles.css?v=${APP_VERSION}`,
+  `./app.js?v=${APP_VERSION}`,
+  `./manifest.json?v=${APP_VERSION}`
+];
 
 self.addEventListener('install', event => {
   event.waitUntil(
@@ -20,28 +27,31 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const request = event.request;
   if(request.method !== 'GET') return;
+
   const url = new URL(request.url);
   if(url.origin !== self.location.origin) return;
   if(url.pathname.endsWith('/sw.js')) return;
 
-  // 앱 셸은 버전 쿼리로 최신 배포본을 강제한다.
   const shellPath = url.pathname.endsWith('/') || /\/(?:index\.html|app\.js|styles\.css|manifest\.json)$/.test(url.pathname);
   if(shellPath){
     const bust = new URL(url.href);
-    bust.searchParams.set('v','0.7.8');
-    event.respondWith(fetch(new Request(bust.href, request), {cache:'no-store'}).then(response => response));
+    bust.searchParams.set('v', APP_VERSION);
+    event.respondWith(
+      fetch(new Request(bust.href, request), {cache:'no-store'})
+        .then(response => {
+          if(response.ok){
+            caches.open(CACHE_NAME).then(cache => cache.put(request, response.clone())).catch(()=>{});
+          }
+          return response;
+        })
+        .catch(() => caches.match(request).then(cached => cached || caches.match(`./index.html?v=${APP_VERSION}`)))
+    );
     return;
   }
 
   event.respondWith(
     fetch(request)
-      .then(response => {
-        if(response && response.ok){
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(request, copy));
-        }
-        return response;
-      })
-      .catch(() => caches.match(request).then(cached => cached || caches.match('./index.html?v=0.7.9')))
+      .then(response => response)
+      .catch(() => caches.match(request))
   );
 });

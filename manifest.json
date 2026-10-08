@@ -1,11 +1,11 @@
 {
   "name": "북치킨클럽",
   "short_name": "북치킨클럽",
+  "description": "북치킨클럽 독서 기록 아카이브",
+  "lang": "ko-KR",
   "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#f7f4ee",
-  "theme_color": "#314d3a",
-  "lang": "ko",
-  "description": "북치킨클럽 독서 기록 아카이브 프로토타입",
-  "icons": []
+  "theme_color": "#f7f4ee"
 }

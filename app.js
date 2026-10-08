@@ -1,6 +1,6 @@
-// 북치킨클럽 v0.7.9 — 회원/회의록/참여 상태
+// 북치킨클럽 v0.8.0 — 안정화/데이터 구조 정리
 const API_URL = 'https://script.google.com/macros/s/AKfycbxONtBlo8vsHmi8xdoOt5lJGHjnLOf6o3zPuIB1sYB3Gb2tb2EGe69ET-UFSal03y3K6A/exec';
-const APP_VERSION = '0.7.9';
+const APP_VERSION = '0.8.0';
 
 const data = {
   books: [],
@@ -15,7 +15,7 @@ let dataLoading = true;
 
 const fallbackData = {
   books: [
-    {id:'book-b001', book_id:'b001', title:'노르웨이의 숲', author:'무라카미 하루키', status:'읽은 책', date:'미정', cover:'green', participants:['김정운 (869기)']}
+    {id:'book-b001', book_id:'b001', title:'노르웨이의 숲', author:'무라카미 하루키', status:'읽은 책', date:'미정', cover:'green', participants:[{id:'m001',name:'김정운',cohort:'869기'}]}
   ],
   members: [
     {id:'m001', name:'김정운 (869기)', plain_name:'김정운', cohort:'869기'}
@@ -81,7 +81,7 @@ async function fetchData(){
   let lastError = null;
   for(let attempt = 1; attempt <= 3; attempt++){
     try {
-      const url = `${API_URL}?action=data&client=v0.7.9&_=${Date.now()}-${attempt}`;
+      const url = `${API_URL}?action=data&client=v0.8.0&_=${Date.now()}-${attempt}`;
       const response = await fetch(url, {
         method: 'GET',
         cache: 'no-store',
@@ -160,6 +160,7 @@ function render(){
   if(r === 'home') home();
   else if(r === 'books') books();
   else if(r === 'members') members();
+  else if(r === 'member-admin') memberAdminPage();
   else if(r === 'records') records();
   else if(r === 'write-record') writeRecordPage();
   else if(r.startsWith('book/')) bookDetail(decodeURIComponent(r.split('/').slice(1).join('/')));
@@ -197,12 +198,53 @@ function home(){
     </section>`;
 }
 
-function coverMarkup(item, className='book-cover'){
-  const cover = String(item.cover || '').trim();
-  if(/^https?:\/\//i.test(cover)){
-    return `<div class="${className} image-cover"><img src="${escapeHtml(cover)}" alt="${escapeHtml(item.title || '책 표지')}" loading="lazy"><span class="cover-fallback">${escapeHtml(item.title || '')}</span></div>`;
+function driveFileIdFromUrl(value){
+  const s=String(value ?? '').trim();
+  if(!s) return '';
+  if(/^[A-Za-z0-9_-]{20,}$/.test(s)) return s;
+  try{
+    const u=new URL(s, location.href);
+    if(u.hostname!=='drive.google.com' && u.hostname!=='www.drive.google.com') return '';
+    const queryId=u.searchParams.get('id');
+    if(queryId) return queryId;
+    const match=u.pathname.match(/\/file\/d\/([^/]+)/);
+    return match ? match[1] : '';
+  }catch(e){ return ''; }
+}
+
+function normalizeCoverUrl(value){
+  const s=String(value ?? '').trim();
+  if(!s) return '';
+  const id=driveFileIdFromUrl(s);
+  if(!id) return s;
+  return `https://drive.google.com/thumbnail?id=${encodeURIComponent(id)}&sz=w1200`;
+}
+
+function participantLabel(participant){
+  if(participant && typeof participant==='object'){
+    const name=String(participant.name || '').trim();
+    const cohort=String(participant.cohort || '').trim();
+    return cohort ? `${name} (${cohort})` : name;
   }
-  return `<div class="${className} ${escapeHtml(cover)}">${escapeHtml(item.title || '')}</div>`;
+  return String(participant ?? '').trim();
+}
+
+function participantId(participant){
+  if(participant && typeof participant==='object') return String(participant.id ?? '').trim();
+  const label=participantLabel(participant);
+  const plain=label.replace(/\s*\([^)]*\)\s*$/, '').trim();
+  const matched=data.members.find(m=>String(m.plain_name || m.name || '').trim()===plain);
+  return matched ? String(matched.id) : '';
+}
+
+function coverMarkup(item, className='book-cover'){
+  const cover=normalizeCoverUrl(item.cover);
+  if(cover && /^https?:\/\//i.test(cover)){
+    const title=escapeHtml(item.title || '책 표지');
+    return `<div class="${className} image-cover"><img src="${escapeHtml(cover)}" alt="${title}" loading="lazy" referrerpolicy="no-referrer" onerror="this.hidden=true;this.parentElement.classList.add('cover-broken')"><span class="cover-fallback">${title}</span></div>`;
+  }
+  const fallback=cover || 'green';
+  return `<div class="${className} ${escapeHtml(fallback)}">${escapeHtml(item.title || '')}</div>`;
 }
 
 function bookCard(b){
@@ -217,32 +259,12 @@ function bookCard(b){
 }
 
 
-function memberNameVariants(value){
-  const raw = String(value ?? '').trim();
-  if(!raw) return [];
-  const plain = raw.replace(/\s*\([^)]*\)\s*$/, '').trim();
-  return [...new Set([raw, plain].filter(Boolean))];
-}
-
 function isUserParticipant(bookItem, user){
   if(!bookItem || !user) return false;
-  const participants = Array.isArray(bookItem.participants) ? bookItem.participants : [];
-  const userId = String(user.id ?? '').trim();
+  const participants=Array.isArray(bookItem.participants) ? bookItem.participants : [];
+  const userId=String(user.id ?? '').trim();
   if(!userId) return false;
-
-  // 현재 프론트 데이터의 participants는 이름 문자열이므로,
-  // 같은 이름을 가진 회원을 Members 데이터에서 찾아 회원 ID로 판정한다.
-  const userNames = memberNameVariants(user.name);
-  return participants.some(participant => {
-    const participantNames = memberNameVariants(participant);
-    return participantNames.some(pn => {
-      const matched = data.members.find(m => {
-        const names = memberNameVariants(m.plain_name || m.name);
-        return names.includes(pn);
-      });
-      return matched && String(matched.id) === userId;
-    });
-  });
+  return participants.some(participant => participantId(participant) === userId);
 }
 
 function bookDetail(id){
@@ -290,7 +312,7 @@ function bookDetail(id){
         <section class="section">
           <div class="section-head"><div><h2>참여자</h2><p>${b.participants.length}명</p></div></div>
           <div class="member-list">
-            ${participants.map(p=>`<span class="member-chip">${escapeHtml(p)}</span>`).join('') || '<div class="empty">아직 참여자가 없습니다.</div>'}
+            ${participants.map(p=>`<span class="member-chip">${escapeHtml(participantLabel(p))}</span>`).join('') || '<div class="empty">아직 참여자가 없습니다.</div>'}
           </div>
         </section>
 
@@ -350,7 +372,7 @@ function meetingCard(m){
   return `<article class="meeting-card">
     <details>
       <summary>${escapeHtml(m.date)} · ${escapeHtml(m.title)}</summary>
-      <p>${escapeHtml(m.body)}</p>
+      <p>${m.author ? `<span class="meeting-author">작성자: ${escapeHtml(m.author)}</span>\n` : ''}${escapeHtml(m.body)}</p>
     </details>
   </article>`;
 }
@@ -421,6 +443,7 @@ async function saveBookEdit(e,b){
       body:JSON.stringify({
         action:'updateBook',
         book_id:b.book_id,
+        member_id:user.id,
         title, author, status,
         meeting_date:meetingDate,
         cover_base64, cover_type
@@ -457,10 +480,14 @@ async function participateBook(bookId){
   }
 }
 
+function isAdmin(user=getUser()){ return !!user && user.is_admin === true; }
+
 function members(){
   const ms=[...data.members].sort((a,b)=>String(a.cohort).localeCompare(String(b.cohort), 'ko') || String(a.plain_name||a.name).localeCompare(String(b.plain_name||b.name), 'ko'));
-  app.innerHTML=`<div class="page-title"><div class="eyebrow">CLUB MEMBERS</div><h1>회원</h1>
+  const user=getUser();
+  app.innerHTML=`<div class="page-title"><div class="eyebrow">CLUB MEMBERS</div><div class="page-title-row"><div><h1>회원</h1>
   <p>북치킨클럽의 회원과 각 회원이 남긴 독서 기록을 볼 수 있습니다.</p></div>
+  ${isAdmin(user)?'<button class="primary add-book-button" onclick="navigate(\'#member-admin\')">회원 관리</button>':''}</div></div>
   <div class="stats"><div class="stat"><strong>${ms.length}</strong><span>전체 회원</span></div>
   <div class="stat"><strong>${new Set(ms.map(m=>m.cohort).filter(Boolean)).size}</strong><span>기수</span></div>
   <div class="stat"><strong>${data.records.length}</strong><span>전체 독서 기록</span></div></div>
@@ -468,6 +495,95 @@ function members(){
     <div class="record-top"><div><strong>${escapeHtml(m.plain_name||m.name)}</strong><div class="record-book">${escapeHtml(m.cohort||'기수 미상')}</div></div>
     <span class="tag">${data.records.filter(r=>String(r.member_id)===String(m.id)).length}개 기록</span></div>
   </article>`).join('') || '<div class="empty">등록된 회원이 없습니다.</div>'}</div></section>`;
+}
+
+let adminMembersData=[];
+
+async function memberAdminPage(){
+  const user=getUser();
+  if(!user){navigate('#login');return;}
+  if(!isAdmin(user)){alert('관리자 권한이 필요합니다.');navigate('#members');return;}
+
+  app.innerHTML=`<button class="back" onclick="navigate('#members')">← 회원 목록으로 돌아가기</button>
+  <div class="page-title"><div class="eyebrow">MEMBER ADMIN</div><h1>회원 관리</h1><p>회원 추가 및 정보 수정은 관리자만 할 수 있습니다.</p></div>
+  <section class="section"><div class="add-book-panel"><div class="section-head"><div><h2 id="memberAdminFormTitle">새 회원 추가</h2><p>군번은 로그인 식별용으로만 사용되며 일반 회원 화면에는 표시되지 않습니다.</p></div><button class="back" type="button" onclick="clearMemberAdminForm()">새로 입력</button></div>
+    <form id="memberAdminForm" class="auth-form">
+      <input id="memberAdminId" type="hidden">
+      <label>이름<input id="memberAdminName" required placeholder="예: 김정운"></label>
+      <label>기수<input id="memberAdminCohort" required placeholder="예: 869기"></label>
+      <label>군번<input id="memberAdminServiceNumber" required placeholder="로그인에 사용할 군번"></label>
+      <button class="primary-button" type="submit">저장</button>
+      <p id="memberAdminMessage" class="form-message"></p>
+    </form></div></section>
+  <section class="section"><div class="section-head"><div><h2>현재 회원</h2><p id="memberAdminCount">불러오는 중...</p></div></div><div id="memberAdminList" class="list"><div class="empty">관리자 회원 목록을 불러오는 중...</div></div></section>`;
+
+  document.getElementById('memberAdminForm').addEventListener('submit',saveMemberAdmin);
+  await loadAdminMembers();
+}
+
+async function loadAdminMembers(){
+  const user=getUser();
+  const list=document.getElementById('memberAdminList');
+  const count=document.getElementById('memberAdminCount');
+  if(!user || !isAdmin(user) || !list) return;
+  try{
+    const response=await fetch(`${API_URL}?action=adminMembers&member_id=${encodeURIComponent(user.id)}&_=${Date.now()}`,{cache:'no-store'});
+    const result=await response.json();
+    if(!result.ok) throw new Error(result.error||'회원 목록을 불러오지 못했습니다.');
+    adminMembersData=Array.isArray(result.members)?result.members:[];
+    count.textContent=`${adminMembersData.length}명`;
+    list.innerHTML=adminMembersData.map(m=>`<article class="member-card"><div class="record-top"><div><strong>${escapeHtml(m.name)}</strong><div class="record-book">${escapeHtml(m.cohort||'기수 미상')} · 군번 ${escapeHtml(m.service_number)}</div></div><button class="secondary" type="button" onclick="editMemberAdmin('${escapeHtml(m.id)}')">수정</button></div></article>`).join('') || '<div class="empty">등록된 회원이 없습니다.</div>';
+  }catch(error){
+    count.textContent='불러오기 실패';
+    list.innerHTML=`<div class="empty">${escapeHtml(error.message||error)}</div>`;
+  }
+}
+
+function clearMemberAdminForm(){
+  document.getElementById('memberAdminId').value='';
+  document.getElementById('memberAdminName').value='';
+  document.getElementById('memberAdminCohort').value='';
+  document.getElementById('memberAdminServiceNumber').value='';
+  document.getElementById('memberAdminFormTitle').textContent='새 회원 추가';
+  document.getElementById('memberAdminMessage').textContent='';
+}
+
+function editMemberAdmin(id){
+  const m=adminMembersData.find(x=>String(x.id)===String(id));
+  if(!m)return;
+  document.getElementById('memberAdminId').value=m.id;
+  document.getElementById('memberAdminName').value=m.name||'';
+  document.getElementById('memberAdminCohort').value=m.cohort||'';
+  document.getElementById('memberAdminServiceNumber').value=m.service_number||'';
+  document.getElementById('memberAdminFormTitle').textContent=`회원 정보 수정 · ${m.name}`;
+  document.getElementById('memberAdminMessage').textContent='';
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+async function saveMemberAdmin(e){
+  e.preventDefault();
+  const user=getUser();
+  const msg=document.getElementById('memberAdminMessage');
+  if(!user || !isAdmin(user)){msg.textContent='관리자 권한이 필요합니다.';return;}
+  const memberId=document.getElementById('memberAdminId').value.trim();
+  const name=document.getElementById('memberAdminName').value.trim();
+  const cohort=document.getElementById('memberAdminCohort').value.trim();
+  const serviceNumber=document.getElementById('memberAdminServiceNumber').value.trim();
+  if(!name||!cohort||!serviceNumber){msg.textContent='이름, 기수, 군번을 모두 입력해주세요.';return;}
+  msg.textContent='회원 정보를 저장하는 중...';
+  try{
+    const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'upsertMember',admin_member_id:user.id,member_id:memberId,name,cohort,service_number:serviceNumber})});
+    const result=await response.json();
+    if(!result.ok)throw new Error(result.error||'회원 저장에 실패했습니다.');
+    await fetchData();
+    if(memberId===String(user.id)){
+      const refreshed={...user,name,cohort,service_number:serviceNumber};
+      setUser(refreshed);
+    }
+    msg.textContent='저장했습니다.';
+    clearMemberAdminForm();
+    await loadAdminMembers();
+  }catch(error){msg.textContent=`저장하지 못했습니다: ${error.message||error}`;}
 }
 
 function memberDetail(id){
@@ -681,11 +797,25 @@ async function login(e){
     const response=await fetch(`${API_URL}?action=member&service_number=${encodeURIComponent(serviceNumber)}&_=${Date.now()}`, {cache:'no-store'});
     const result=await response.json();
     if(!result.ok) throw new Error(result.error || '등록되지 않은 군번입니다.');
-    setUser({id:result.member.id,name:result.member.name,cohort:result.member.cohort,service_number:serviceNumber});
+    setUser({id:result.member.id,name:result.member.name,cohort:result.member.cohort,service_number:serviceNumber,is_admin:result.member.is_admin===true});
     await fetchData();
     navigate('#home');
   }catch(error){
     msg.textContent = error.message || '로그인에 실패했습니다.';
+  }
+}
+
+async function refreshLoggedInUser(){
+  const current=getUser();
+  if(!current?.service_number) return;
+  try{
+    const response=await fetch(`${API_URL}?action=member&service_number=${encodeURIComponent(current.service_number)}&_=${Date.now()}`,{cache:'no-store'});
+    const result=await response.json();
+    if(result?.ok && result.member){
+      setUser({id:result.member.id,name:result.member.name,cohort:result.member.cohort,service_number:current.service_number,is_admin:result.member.is_admin===true});
+    }
+  }catch(error){
+    console.warn('[북치킨클럽] 기존 로그인 정보 갱신 실패',error);
   }
 }
 
@@ -752,7 +882,7 @@ function updateAuth(){
 
 function bookText(id){
   const b=book(id),rs=data.records.filter(r=>r.book===id),ms=data.meetings.filter(m=>m.book===id);
-  return `북치킨클럽 - ${b.title}\n========================\n\n책 정보\n--------\n제목: ${b.title}\n저자: ${b.author}\n모임일: ${b.date}\n상태: ${b.status}\n\n참여자\n--------\n${b.participants.join('\n')||'(없음)'}\n\n${rs.map(r=>`[${r.author}의 독서 기록]\n------------------------\n작성일: ${r.date}\n제목: ${r.title}\n\n${r.body}`).join('\n\n')}\n\n[모임 회의록]\n------------------------\n${ms.map(m=>`${m.date} ${m.title}\n\n${m.body}`).join('\n\n')||'(없음)'}\n`;
+  return `북치킨클럽 - ${b.title}\n========================\n\n책 정보\n--------\n제목: ${b.title}\n저자: ${b.author}\n모임일: ${b.date}\n상태: ${b.status}\n\n참여자\n--------\n${b.participants.map(participantLabel).join('\n')||'(없음)'}\n\n${rs.map(r=>`[${r.author}의 독서 기록]\n------------------------\n작성일: ${r.date}\n제목: ${r.title}\n\n${r.body}`).join('\n\n')}\n\n[모임 회의록]\n------------------------\n${ms.map(m=>`${m.date} ${m.title}\n\n${m.body}`).join('\n\n')||'(없음)'}\n`;
 }
 function download(name,text){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'text/plain;charset=utf-8'}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
 function downloadBook(id){const decoded=decodeURIComponent(id);const b=book(decoded);if(b)download(`북치킨클럽_${b.title}.txt`,bookText(b.id));}
@@ -764,7 +894,7 @@ document.getElementById('logoutButton')?.addEventListener('click',()=>{setUser(n
 window.addEventListener('hashchange',render);
 if('serviceWorker' in navigator) window.addEventListener('load',async()=>{
   try{
-    const registration=await navigator.serviceWorker.register('sw.js?v=0.7.8',{updateViaCache:'none'});
+    const registration=await navigator.serviceWorker.register(`sw.js?v=${APP_VERSION}`,{updateViaCache:'none'});
     await registration.update();
   }catch(error){
     console.warn('[북치킨클럽] 서비스 워커 업데이트 실패',error);
@@ -776,7 +906,10 @@ if('serviceWorker' in navigator) window.addEventListener('load',async()=>{
 })();
 
 (async function init(){
+  await refreshLoggedInUser();
   const ok=await fetchData();
+  const versionEl=document.getElementById('appVersion');
+  if(versionEl) versionEl.textContent=`Google Sheets 공유 DB · v${APP_VERSION}`;
   render();
   showDataErrorIfNeeded(ok);
 })();
