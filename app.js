@@ -1,4 +1,4 @@
-// 북치킨클럽 v0.7.4 — 공유 DB/라우팅/기록 관리 안정화
+// 북치킨클럽 v0.7.7 — 회원/회의록/참여 상태
 const API_URL = 'https://script.google.com/macros/s/AKfycbxONtBlo8vsHmi8xdoOt5lJGHjnLOf6o3zPuIB1sYB3Gb2tb2EGe69ET-UFSal03y3K6A/exec';
 const APP_VERSION = '0.7.6';
 
@@ -81,7 +81,7 @@ async function fetchData(){
   let lastError = null;
   for(let attempt = 1; attempt <= 3; attempt++){
     try {
-      const url = `${API_URL}?action=data&client=v0.7.4&_=${Date.now()}-${attempt}`;
+      const url = `${API_URL}?action=data&client=v0.7.7&_=${Date.now()}-${attempt}`;
       const response = await fetch(url, {
         method: 'GET',
         cache: 'no-store',
@@ -251,6 +251,7 @@ function bookDetail(id){
             ? `<button class="secondary" disabled>✓ 참여 중</button>`
             : `<button class="primary" onclick="participateBook('${escapeHtml(b.book_id)}')">+ 참여하기</button>`) : ''}
           ${user ? `<button class="secondary" onclick="showEditBookForm('${escapeHtml(b.book_id)}')">✎ 책 정보 수정</button>` : ''}
+          ${user ? `<button class="secondary" onclick="showAddMeetingForm('${escapeHtml(b.book_id)}')">＋ 회의록 등록</button>` : ''}
           <button class="secondary" onclick="downloadBook('${encodeURIComponent(b.id)}')">TXT 다운로드</button>
         </div>
       </div>
@@ -270,6 +271,7 @@ function bookDetail(id){
           <div class="list">${rs.map(recordCard).join('') || '<div class="empty">아직 독서 기록이 없습니다.</div>'}</div>
         </section>
 
+        <div id="bookMeetingPanel" hidden></div>
         <section class="section">
           <div class="section-head"><div><h2>모임 회의록</h2><p>${ms.length}개</p></div></div>
           <div class="list">${ms.map(meetingCard).join('') || '<div class="empty">아직 회의록이 없습니다.</div>'}</div>
@@ -277,6 +279,43 @@ function bookDetail(id){
       </div>
     </section>
     <div id="bookEditPanel"></div>`;
+}
+
+function showAddMeetingForm(bookId){
+  const b=book(bookId), user=getUser();
+  const panel=document.getElementById('bookMeetingPanel');
+  if(!b || !user || !panel)return;
+  panel.hidden=false;
+  panel.innerHTML=`<section class="section"><div class="add-book-panel">
+    <div class="section-head"><div><h2>회의록 등록</h2><p>${escapeHtml(b.title)} 모임에서 나눈 내용을 기록합니다.</p></div>
+    <button class="back" type="button" onclick="hideAddMeetingForm()">닫기</button></div>
+    <form id="meetingForm" class="auth-form">
+      <label>모임 날짜<input id="meetingDate" type="date" required></label>
+      <label>제목<input id="meetingTitle" required placeholder="예: 10월 모임 회의록"></label>
+      <label>회의 내용<textarea id="meetingBody" rows="10" required placeholder="모임에서 나눈 이야기와 결정 사항을 적어주세요."></textarea></label>
+      <button class="primary-button" type="submit">회의록 저장</button>
+      <p id="meetingMessage" class="form-message"></p>
+    </form></div></section>`;
+  document.getElementById('meetingForm').addEventListener('submit',e=>saveMeeting(e,b));
+}
+function hideAddMeetingForm(){const p=document.getElementById('bookMeetingPanel');if(p){p.hidden=true;p.innerHTML='';}}
+async function saveMeeting(e,b){
+  e.preventDefault();
+  const user=getUser(),msg=document.getElementById('meetingMessage');
+  if(!user){navigate('#login');return;}
+  if(!sharedDbAvailable){msg.textContent='공유 DB에 연결된 상태에서만 회의록을 저장할 수 있습니다.';return;}
+  const date=document.getElementById('meetingDate').value;
+  const title=document.getElementById('meetingTitle').value.trim();
+  const body=document.getElementById('meetingBody').value.trim();
+  if(!date||!title||!body){msg.textContent='모임 날짜, 제목, 내용을 모두 입력해주세요.';return;}
+  msg.textContent='회의록을 저장하는 중...';
+  try{
+    const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'addMeeting',book_id:b.book_id,member_id:user.id,meeting_date:date,title,body})});
+    const result=await response.json();
+    if(!result.ok)throw new Error(result.error||'회의록 등록에 실패했습니다.');
+    await fetchData();
+    bookDetail(`book-${b.book_id}`);
+  }catch(error){msg.textContent=`등록하지 못했습니다: ${error.message||error}`;}
 }
 
 function meetingCard(m){
@@ -388,6 +427,32 @@ async function participateBook(bookId){
   }catch(error){
     alert(`참여하지 못했습니다: ${error.message||error}`);
   }
+}
+
+function members(){
+  const ms=[...data.members].sort((a,b)=>String(a.cohort).localeCompare(String(b.cohort), 'ko') || String(a.plain_name||a.name).localeCompare(String(b.plain_name||b.name), 'ko'));
+  app.innerHTML=`<div class="page-title"><div class="eyebrow">CLUB MEMBERS</div><h1>회원</h1>
+  <p>북치킨클럽의 회원과 각 회원이 남긴 독서 기록을 볼 수 있습니다.</p></div>
+  <div class="stats"><div class="stat"><strong>${ms.length}</strong><span>전체 회원</span></div>
+  <div class="stat"><strong>${new Set(ms.map(m=>m.cohort).filter(Boolean)).size}</strong><span>기수</span></div>
+  <div class="stat"><strong>${data.records.length}</strong><span>전체 독서 기록</span></div></div>
+  <section class="section"><div class="list">${ms.map(m=>`<article class="member-card" onclick="navigate('#member/${encodeURIComponent(m.id)}')" style="cursor:pointer">
+    <div class="record-top"><div><strong>${escapeHtml(m.plain_name||m.name)}</strong><div class="record-book">${escapeHtml(m.cohort||'기수 미상')}</div></div>
+    <span class="tag">${data.records.filter(r=>String(r.member_id)===String(m.id)).length}개 기록</span></div>
+  </article>`).join('') || '<div class="empty">등록된 회원이 없습니다.</div>'}</div></section>`;
+}
+
+function memberDetail(id){
+  const m=data.members.find(x=>String(x.id)===String(id));
+  if(!m){navigate('#members');return;}
+  const rs=data.records.filter(r=>String(r.member_id)===String(m.id)).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  const participatedBooks=data.books.filter(b=>Array.isArray(b.participants) && b.participants.some(name=>String(name)===String(m.name)));
+  app.innerHTML=`<button class="back" onclick="navigate('#members')">← 회원 목록으로 돌아가기</button>
+  <div class="page-title"><div class="eyebrow">MEMBER</div><h1>${escapeHtml(m.plain_name||m.name)}</h1><p>${escapeHtml(m.cohort||'기수 미상')}</p></div>
+  <section class="section"><div class="section-head"><div><h2>참여한 책</h2><p>${participatedBooks.length}권</p></div></div>
+    <div class="book-grid">${participatedBooks.map(bookCard).join('') || '<div class="empty">아직 참여한 책이 없습니다.</div>'}</div></section>
+  <section class="section"><div class="section-head"><div><h2>독서 기록</h2><p>${rs.length}개</p></div></div>
+    <div class="list">${rs.map(recordCard).join('') || '<div class="empty">아직 독서 기록이 없습니다.</div>'}</div></section>`;
 }
 
 function books(){
@@ -634,6 +699,8 @@ async function saveRecord(e){
 
 window.participateBook = participateBook;
 window.showEditBookForm = showEditBookForm;
+window.showAddMeetingForm = showAddMeetingForm;
+window.hideAddMeetingForm = hideAddMeetingForm;
 window.downloadBook = downloadBook;
 
 function getUser(){
@@ -669,7 +736,7 @@ document.getElementById('logoutButton')?.addEventListener('click',()=>{setUser(n
 window.addEventListener('hashchange',render);
 if('serviceWorker' in navigator) window.addEventListener('load',async()=>{
   try{
-    const registration=await navigator.serviceWorker.register('sw.js?v=0.7.6',{updateViaCache:'none'});
+    const registration=await navigator.serviceWorker.register('sw.js?v=0.7.7',{updateViaCache:'none'});
     await registration.update();
   }catch(error){
     console.warn('[북치킨클럽] 서비스 워커 업데이트 실패',error);

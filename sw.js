@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bookchickenclub-v0-7-6-shell';
+const CACHE_NAME = 'bookchickenclub-v0-7-7-shell';
 const ASSETS = ['./','./index.html','./styles.css','./app.js','./manifest.json'];
 
 self.addEventListener('install', event => {
