@@ -1,4 +1,4 @@
-// 북치킨클럽 v0.7.7 — 회원/회의록/참여 상태
+// 북치킨클럽 v0.7.8 — 회원/회의록/참여 상태
 const API_URL = 'https://script.google.com/macros/s/AKfycbxONtBlo8vsHmi8xdoOt5lJGHjnLOf6o3zPuIB1sYB3Gb2tb2EGe69ET-UFSal03y3K6A/exec';
 const APP_VERSION = '0.7.6';
 
@@ -81,7 +81,7 @@ async function fetchData(){
   let lastError = null;
   for(let attempt = 1; attempt <= 3; attempt++){
     try {
-      const url = `${API_URL}?action=data&client=v0.7.7&_=${Date.now()}-${attempt}`;
+      const url = `${API_URL}?action=data&client=v0.7.8&_=${Date.now()}-${attempt}`;
       const response = await fetch(url, {
         method: 'GET',
         cache: 'no-store',
@@ -226,7 +226,11 @@ function bookDetail(id){
 
   const user = getUser();
   const participants = Array.isArray(b.participants) ? b.participants : [];
-  const participated = !!user && participants.some(name => String(name) === String(user.name));
+  const participated = !!user && participants.some(name => {
+    const p = String(name || '').trim();
+    const n = String(user.name || '').trim();
+    return p === n || p.startsWith(`${n} (`);
+  });
   const rs = data.records.filter(r => normalizeBookId(r.book) === normalizeBookId(b.id))
     .sort((a,b)=>String(b.date).localeCompare(String(a.date)));
   const ms = data.meetings.filter(m => normalizeBookId(m.book) === normalizeBookId(b.id))
@@ -413,7 +417,7 @@ async function participateBook(bookId){
   const b=data.books.find(x=>String(x.book_id)===String(bookId));
   if(!user){navigate('#login');return;}
   if(!b)return;
-  if(b.participants.some(name=>String(name)===String(user.name)))return;
+  if(b.participants.some(name=>{ const p=String(name||'').trim(); const n=String(user.name||'').trim(); return p===n || p.startsWith(`${n} (`); }))return;
   try{
     const response=await fetch(API_URL,{
       method:'POST',
@@ -446,7 +450,7 @@ function memberDetail(id){
   const m=data.members.find(x=>String(x.id)===String(id));
   if(!m){navigate('#members');return;}
   const rs=data.records.filter(r=>String(r.member_id)===String(m.id)).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
-  const participatedBooks=data.books.filter(b=>Array.isArray(b.participants) && b.participants.some(name=>String(name)===String(m.name)));
+  const participatedBooks=data.books.filter(b=>Array.isArray(b.participants) && b.participants.some(name=>{ const p=String(name||'').trim(); const n=String(m.plain_name||m.name||'').trim(); return p===n || p.startsWith(`${n} (`); }));
   app.innerHTML=`<button class="back" onclick="navigate('#members')">← 회원 목록으로 돌아가기</button>
   <div class="page-title"><div class="eyebrow">MEMBER</div><h1>${escapeHtml(m.plain_name||m.name)}</h1><p>${escapeHtml(m.cohort||'기수 미상')}</p></div>
   <section class="section"><div class="section-head"><div><h2>참여한 책</h2><p>${participatedBooks.length}권</p></div></div>
@@ -736,7 +740,7 @@ document.getElementById('logoutButton')?.addEventListener('click',()=>{setUser(n
 window.addEventListener('hashchange',render);
 if('serviceWorker' in navigator) window.addEventListener('load',async()=>{
   try{
-    const registration=await navigator.serviceWorker.register('sw.js?v=0.7.7',{updateViaCache:'none'});
+    const registration=await navigator.serviceWorker.register('sw.js?v=0.7.8',{updateViaCache:'none'});
     await registration.update();
   }catch(error){
     console.warn('[북치킨클럽] 서비스 워커 업데이트 실패',error);
