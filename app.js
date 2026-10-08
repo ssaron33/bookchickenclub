@@ -1,6 +1,6 @@
-// 북치킨클럽 v0.7.8 — 회원/회의록/참여 상태
+// 북치킨클럽 v0.7.9 — 회원/회의록/참여 상태
 const API_URL = 'https://script.google.com/macros/s/AKfycbxONtBlo8vsHmi8xdoOt5lJGHjnLOf6o3zPuIB1sYB3Gb2tb2EGe69ET-UFSal03y3K6A/exec';
-const APP_VERSION = '0.7.6';
+const APP_VERSION = '0.7.9';
 
 const data = {
   books: [],
@@ -81,7 +81,7 @@ async function fetchData(){
   let lastError = null;
   for(let attempt = 1; attempt <= 3; attempt++){
     try {
-      const url = `${API_URL}?action=data&client=v0.7.8&_=${Date.now()}-${attempt}`;
+      const url = `${API_URL}?action=data&client=v0.7.9&_=${Date.now()}-${attempt}`;
       const response = await fetch(url, {
         method: 'GET',
         cache: 'no-store',
@@ -217,6 +217,34 @@ function bookCard(b){
 }
 
 
+function memberNameVariants(value){
+  const raw = String(value ?? '').trim();
+  if(!raw) return [];
+  const plain = raw.replace(/\s*\([^)]*\)\s*$/, '').trim();
+  return [...new Set([raw, plain].filter(Boolean))];
+}
+
+function isUserParticipant(bookItem, user){
+  if(!bookItem || !user) return false;
+  const participants = Array.isArray(bookItem.participants) ? bookItem.participants : [];
+  const userId = String(user.id ?? '').trim();
+  if(!userId) return false;
+
+  // 현재 프론트 데이터의 participants는 이름 문자열이므로,
+  // 같은 이름을 가진 회원을 Members 데이터에서 찾아 회원 ID로 판정한다.
+  const userNames = memberNameVariants(user.name);
+  return participants.some(participant => {
+    const participantNames = memberNameVariants(participant);
+    return participantNames.some(pn => {
+      const matched = data.members.find(m => {
+        const names = memberNameVariants(m.plain_name || m.name);
+        return names.includes(pn);
+      });
+      return matched && String(matched.id) === userId;
+    });
+  });
+}
+
 function bookDetail(id){
   const b = book(id);
   if(!b){
@@ -226,11 +254,7 @@ function bookDetail(id){
 
   const user = getUser();
   const participants = Array.isArray(b.participants) ? b.participants : [];
-  const participated = !!user && participants.some(name => {
-    const p = String(name || '').trim();
-    const n = String(user.name || '').trim();
-    return p === n || p.startsWith(`${n} (`);
-  });
+  const participated = isUserParticipant(b, user);
   const rs = data.records.filter(r => normalizeBookId(r.book) === normalizeBookId(b.id))
     .sort((a,b)=>String(b.date).localeCompare(String(a.date)));
   const ms = data.meetings.filter(m => normalizeBookId(m.book) === normalizeBookId(b.id))
@@ -417,7 +441,7 @@ async function participateBook(bookId){
   const b=data.books.find(x=>String(x.book_id)===String(bookId));
   if(!user){navigate('#login');return;}
   if(!b)return;
-  if(b.participants.some(name=>{ const p=String(name||'').trim(); const n=String(user.name||'').trim(); return p===n || p.startsWith(`${n} (`); }))return;
+  if(isUserParticipant(b, user))return;
   try{
     const response=await fetch(API_URL,{
       method:'POST',
@@ -450,7 +474,7 @@ function memberDetail(id){
   const m=data.members.find(x=>String(x.id)===String(id));
   if(!m){navigate('#members');return;}
   const rs=data.records.filter(r=>String(r.member_id)===String(m.id)).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
-  const participatedBooks=data.books.filter(b=>Array.isArray(b.participants) && b.participants.some(name=>{ const p=String(name||'').trim(); const n=String(m.plain_name||m.name||'').trim(); return p===n || p.startsWith(`${n} (`); }));
+  const participatedBooks=data.books.filter(b=>isUserParticipant(b, {id:m.id,name:m.plain_name||m.name}));
   app.innerHTML=`<button class="back" onclick="navigate('#members')">← 회원 목록으로 돌아가기</button>
   <div class="page-title"><div class="eyebrow">MEMBER</div><h1>${escapeHtml(m.plain_name||m.name)}</h1><p>${escapeHtml(m.cohort||'기수 미상')}</p></div>
   <section class="section"><div class="section-head"><div><h2>참여한 책</h2><p>${participatedBooks.length}권</p></div></div>

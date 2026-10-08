@@ -1,5 +1,5 @@
-const CACHE_NAME = 'bookchickenclub-v0-7-8-shell';
-const ASSETS = ['./','./index.html?v=0.7.8','./styles.css?v=0.7.8','./app.js?v=0.7.8','./manifest.json?v=0.7.8'];
+const CACHE_NAME = 'bookchickenclub-v0-7-9-shell';
+const ASSETS = ['./','./index.html?v=0.7.9','./styles.css?v=0.7.9','./app.js?v=0.7.9','./manifest.json?v=0.7.9'];
 
 self.addEventListener('install', event => {
   event.waitUntil(
@@ -42,6 +42,6 @@ self.addEventListener('fetch', event => {
         }
         return response;
       })
-      .catch(() => caches.match(request).then(cached => cached || caches.match('./index.html?v=0.7.8')))
+      .catch(() => caches.match(request).then(cached => cached || caches.match('./index.html?v=0.7.9')))
   );
 });
