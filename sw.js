@@ -1,4 +1,4 @@
-const APP_VERSION = '0.8.0';
+const APP_VERSION = '0.8.1';
 const CACHE_NAME = `bookchickenclub-v${APP_VERSION.replace(/\./g, '-')}-shell`;
 const ASSETS = [
   './',

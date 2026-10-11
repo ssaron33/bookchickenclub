@@ -1,6 +1,6 @@
-// 북치킨클럽 v0.8.0 — 안정화/데이터 구조 정리
+// 북치킨클럽 v0.8.1 — 구절 중심 독서 기록
 const API_URL = 'https://script.google.com/macros/s/AKfycbxONtBlo8vsHmi8xdoOt5lJGHjnLOf6o3zPuIB1sYB3Gb2tb2EGe69ET-UFSal03y3K6A/exec';
-const APP_VERSION = '0.8.0';
+const APP_VERSION = '0.8.1';
 
 const data = {
   books: [],
@@ -21,7 +21,7 @@ const fallbackData = {
     {id:'m001', name:'김정운 (869기)', plain_name:'김정운', cohort:'869기'}
   ],
   records: [
-    {id:'r001', book:'book-b001', book_id:'b001', member_id:'m001', author:'김정운 (869기)', date:'2026.10.07', title:'노르웨이의 숲 — 독서 기록', body:'읽으면서 등장인물들의 관계와 감정이 계속 신경 쓰였다.\n\n특히 지나간 기억과 현재의 감정이 서로 얽히는 방식이 인상적이었다. 생각보다 오래 여운이 남을 것 같다.'}
+    {id:'r001', book:'book-b001', book_id:'b001', member_id:'m001', author:'김정운 (869기)', date:'2026.10.07', title:'기억에 남은 구절', page:'32–33', extract:'그때의 나는 지금의 나와는 다른 사람이었다.', body:'과거의 나를 현재의 기준으로만 판단할 수는 없겠다는 생각이 들었다. 지금의 내가 과거를 기억하는 방식도 계속 달라진다.'}
   ],
   meetings: []
 };
@@ -81,7 +81,7 @@ async function fetchData(){
   let lastError = null;
   for(let attempt = 1; attempt <= 3; attempt++){
     try {
-      const url = `${API_URL}?action=data&client=v0.8.0&_=${Date.now()}-${attempt}`;
+      const url = `${API_URL}?action=data&client=v0.8.1&_=${Date.now()}-${attempt}`;
       const response = await fetch(url, {
         method: 'GET',
         cache: 'no-store',
@@ -680,21 +680,28 @@ function recordCard(r){
     <button type="button" onclick="event.stopPropagation();navigate('#record-edit/${encodeURIComponent(r.id)}');return false;">수정</button>
     <button type="button" onclick="event.stopPropagation();deleteRecordPrompt('${String(r.id).replace(/'/g,"\\'")}');return false;">삭제</button>
   </div>` : '';
+  const pageMarkup=String(r.page??'').trim() ? `<span class="record-note-page">페이지 ${escapeHtml(r.page)}</span>` : '';
+  const extractMarkup=String(r.extract??'').trim() ? `<blockquote class="record-quote-preview">${escapeHtml(r.extract)}</blockquote>` : '';
   return `<article class="record-card" onclick="navigate('#record/${encodeURIComponent(r.id)}')">
     <div class="record-top"><div><strong>${escapeHtml(r.author)}</strong><div class="record-book">${escapeHtml(b?.title||'알 수 없는 책')}</div></div>
     <span class="tag">${escapeHtml(r.date)}</span></div>
-    <p class="excerpt">${escapeHtml(r.body)}</p>${ownerActions}</article>`;
+    <div class="record-card-title">${escapeHtml(r.title||'독서 기록')}</div>
+    ${pageMarkup}${extractMarkup}
+    <p class="excerpt">${escapeHtml(r.body||'')}</p>${ownerActions}</article>`;
 }
 
 function recordDetail(id){
   const r=data.records.find(x=>String(x.id)===String(id));
   if(!r) return records();
   const b=book(r.book), user=getUser(), mine=!!user && String(r.member_id)===String(user.id);
+  const pageMarkup=String(r.page??'').trim() ? `<div class="record-note-page record-note-page-detail">페이지 ${escapeHtml(r.page)}</div>` : '';
+  const extractMarkup=String(r.extract??'').trim() ? `<section class="record-section"><h4>기억에 남은 구절</h4><blockquote class="record-quote">${escapeHtml(r.extract)}</blockquote></section>` : '';
   app.innerHTML=`<button class="back" onclick="navigate('#records')">← 독서 기록 목록</button>
-  <div class="page-title"><div class="eyebrow">READING NOTE</div><h1>${escapeHtml(r.title)}</h1>
+  <div class="page-title"><div class="eyebrow">READING NOTE</div><h1>${escapeHtml(r.title||'독서 기록')}</h1>
   <p>${escapeHtml(r.author)} · ${escapeHtml(r.date)} · ${escapeHtml(b?.title||'')}</p></div>
-  <article class="record-full"><h3>${escapeHtml(r.author)}</h3><div class="date">${escapeHtml(r.date)}</div>
-  <div class="record-body">${escapeHtml(r.body)}</div></article>
+  <article class="record-full"><h3>${escapeHtml(r.author)}</h3><div class="date">작성일 ${escapeHtml(r.date)}</div>
+  ${pageMarkup}${extractMarkup}
+  <section class="record-section"><h4>내 생각</h4><div class="record-body">${escapeHtml(r.body||'')}</div></section></article>
   <div class="action-row"><button class="primary" onclick="navigate('#book/${encodeURIComponent(r.book)}')">책 페이지로 이동</button>${mine?`<button class="secondary" onclick="navigate('#record-edit/${encodeURIComponent(r.id)}')">✎ 수정</button><button class="danger-button" type="button" onclick="deleteRecordPrompt('${String(r.id).replace(/'/g,"\\'")}');return false;">삭제</button>`:''}</div>`;
 }
 
@@ -708,8 +715,10 @@ function recordEditPage(id){
     <label>책<input disabled value="${escapeHtml(book(r.book)?.title||'알 수 없는 책')}"></label>
     <label>작성자<input disabled value="${escapeHtml(user.name)}"></label>
     <label>작성일<input id="editRecordDate" type="date" value="${escapeHtml(normalizeDateInput(r.date))}"></label>
-    <label>제목<input id="editRecordTitle" value="${escapeHtml(r.title||'')}"></label>
-    <label>기록<textarea id="editRecordContent" rows="14" required>${escapeHtml(r.body)}</textarea></label>
+    <label>제목<input id="editRecordTitle" value="${escapeHtml(r.title||'')}" placeholder="예: 기억에 남은 구절"></label>
+    <label>페이지 <span class="optional">(선택)</span><input id="editRecordPage" value="${escapeHtml(r.page||'')}" placeholder="예: 32 또는 32–34"></label>
+    <label>기억에 남은 구절 <span class="optional">(선택)</span><textarea id="editRecordExtract" rows="4" placeholder="책에서 인용하고 싶은 구절을 적어주세요.">${escapeHtml(r.extract||'')}</textarea></label>
+    <label>내 생각 <textarea id="editRecordContent" rows="10" required placeholder="이 구절을 읽고 어떤 생각이나 감정이 들었나요?">${escapeHtml(r.body||'')}</textarea></label>
     <button class="primary-button" type="submit">수정 내용 저장</button><p id="editRecordMessage" class="form-message"></p>
   </form></div>`;
   document.getElementById('recordEditForm').addEventListener('submit',e=>saveRecordEdit(e,r));
@@ -719,12 +728,16 @@ async function saveRecordEdit(e,r){
   e.preventDefault();
   const msg=document.getElementById('editRecordMessage');
   if(!sharedDbAvailable){msg.textContent='공유 DB에 연결된 상태에서만 수정할 수 있습니다.';return;}
-  const body=document.getElementById('editRecordContent').value.trim(), title=document.getElementById('editRecordTitle').value.trim(), date=document.getElementById('editRecordDate').value;
+  const body=document.getElementById('editRecordContent').value.trim();
+  const title=document.getElementById('editRecordTitle').value.trim();
+  const page=document.getElementById('editRecordPage').value.trim();
+  const extract=document.getElementById('editRecordExtract').value.trim();
+  const date=document.getElementById('editRecordDate').value;
   if(!date){msg.textContent='작성일을 입력해주세요.';return;}
-  if(!body){msg.textContent='기록 내용을 입력해주세요.';return;}
+  if(!body){msg.textContent='내 생각을 입력해주세요.';return;}
   msg.textContent='수정 내용을 저장하는 중...';
   try{
-    const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'updateRecord',record_id:r.id,member_id:r.member_id,record_date:date,title:title||`${book(r.book)?.title||'책'} — 독서 기록`,body})});
+    const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'updateRecord',record_id:r.id,member_id:r.member_id,record_date:date,title:title||`${book(r.book)?.title||'책'} — 독서 기록`,page,extract,body})});
     const result=await response.json();
     if(!result.ok)throw new Error(result.error||'수정에 실패했습니다.');
     await fetchData();
@@ -762,13 +775,15 @@ function writeRecordPage(){
   const user=getUser();
   if(!user){ navigate('#login'); return; }
   app.innerHTML=`<div class="page-title"><div class="eyebrow">READING NOTE</div><h1>독서 기록 작성</h1>
-  <p>작성자는 현재 로그인한 회원으로 자동 지정됩니다. 저장하면 모든 회원이 볼 수 있습니다.</p></div>
+  <p>책에서 기억하고 싶은 구절과 그 구절을 읽고 든 생각을 남겨보세요. 작성자는 현재 로그인한 회원으로 자동 지정됩니다.</p></div>
   <div class="auth-card wide">
     <form id="recordForm" class="auth-form">
       <label>책<select id="recordBook" required>${data.books.map(b=>`<option value="${escapeHtml(b.book_id)}">${escapeHtml(b.title)} — ${escapeHtml(b.author)}</option>`).join('')}</select></label>
       <label>작성자<input id="recordAuthor" disabled value="${escapeHtml(user.name)}"></label>
-      <label>제목<input id="recordTitle" placeholder="예: 노르웨이의 숲 — 독서 기록"></label>
-      <label>기록<textarea id="recordContent" rows="12" required placeholder="책을 읽고 남기고 싶은 내용을 적어주세요."></textarea></label>
+      <label>제목<input id="recordTitle" placeholder="예: 기억에 남은 구절"></label>
+      <label>페이지 <span class="optional">(선택)</span><input id="recordPage" placeholder="예: 32 또는 32–34"></label>
+      <label>기억에 남은 구절 <span class="optional">(선택)</span><textarea id="recordExtract" rows="4" placeholder="책에서 인용하고 싶은 구절을 적어주세요."></textarea></label>
+      <label>내 생각 <textarea id="recordContent" rows="10" required placeholder="이 구절을 읽고 어떤 생각이나 감정이 들었나요?"></textarea></label>
       <button class="primary-button" type="submit" ${sharedDbAvailable && data.books.length?'':'disabled'}>공유 DB에 저장</button>
       <p id="recordMessage" class="form-message"></p>
     </form>
@@ -829,7 +844,9 @@ async function saveRecord(e){
   const bookId=document.getElementById('recordBook').value;
   const body=document.getElementById('recordContent').value.trim();
   const title=document.getElementById('recordTitle').value.trim();
-  if(!body){msg.textContent='기록 내용을 입력해주세요.';return;}
+  const page=document.getElementById('recordPage').value.trim();
+  const extract=document.getElementById('recordExtract').value.trim();
+  if(!body){msg.textContent='내 생각을 입력해주세요.';return;}
   msg.textContent='저장하는 중...';
   try{
     const response=await fetch(API_URL,{
@@ -841,6 +858,8 @@ async function saveRecord(e){
         member_id:user.id,
         record_date:new Date().toISOString().slice(0,10),
         title:title || `${book(bookId)?.title || '책'} — 독서 기록`,
+        page,
+        extract,
         body
       })
     });
@@ -850,6 +869,8 @@ async function saveRecord(e){
     msg.textContent='독서 기록을 저장했습니다. 이제 다른 회원도 볼 수 있습니다.';
     document.getElementById('recordContent').value='';
     document.getElementById('recordTitle').value='';
+    document.getElementById('recordPage').value='';
+    document.getElementById('recordExtract').value='';
   }catch(error){
     msg.textContent=`저장하지 못했습니다: ${error.message || error}`;
   }
@@ -882,7 +903,7 @@ function updateAuth(){
 
 function bookText(id){
   const b=book(id),rs=data.records.filter(r=>r.book===id),ms=data.meetings.filter(m=>m.book===id);
-  return `북치킨클럽 - ${b.title}\n========================\n\n책 정보\n--------\n제목: ${b.title}\n저자: ${b.author}\n모임일: ${b.date}\n상태: ${b.status}\n\n참여자\n--------\n${b.participants.map(participantLabel).join('\n')||'(없음)'}\n\n${rs.map(r=>`[${r.author}의 독서 기록]\n------------------------\n작성일: ${r.date}\n제목: ${r.title}\n\n${r.body}`).join('\n\n')}\n\n[모임 회의록]\n------------------------\n${ms.map(m=>`${m.date} ${m.title}\n\n${m.body}`).join('\n\n')||'(없음)'}\n`;
+  return `북치킨클럽 - ${b.title}\n========================\n\n책 정보\n--------\n제목: ${b.title}\n저자: ${b.author}\n모임일: ${b.date}\n상태: ${b.status}\n\n참여자\n--------\n${b.participants.map(participantLabel).join('\n')||'(없음)'}\n\n${rs.map(r=>`[${r.author}의 독서 기록]\n------------------------\n작성일: ${r.date}\n제목: ${r.title}\n페이지: ${r.page||'(미입력)'}\n\n[기억에 남은 구절]\n${r.extract||'(미입력)'}\n\n[내 생각]\n${r.body}`).join('\n\n')}\n\n[모임 회의록]\n------------------------\n${ms.map(m=>`${m.date} ${m.title}\n\n${m.body}`).join('\n\n')||'(없음)'}\n`;
 }
 function download(name,text){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'text/plain;charset=utf-8'}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
 function downloadBook(id){const decoded=decodeURIComponent(id);const b=book(decoded);if(b)download(`북치킨클럽_${b.title}.txt`,bookText(b.id));}

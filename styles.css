@@ -62,3 +62,14 @@ body:has(.route-page:not(#home):target) .static-routes .route-page:first-child {
 .meeting-author{display:block;color:var(--muted);font-size:12px;margin-bottom:6px}
 #memberAdminList .record-top{align-items:center}
 #memberAdminList .secondary{white-space:nowrap}
+
+
+/* v0.8.1: 구절 중심 독서 기록 */
+.record-card-title{margin-top:10px;font-size:16px;font-weight:750;letter-spacing:-.02em}
+.record-note-page{display:inline-block;margin-top:7px;padding:3px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:700}
+.record-quote-preview{margin:10px 0 0;padding:10px 13px;border-left:3px solid #b7c8b7;border-radius:0 10px 10px 0;background:var(--surface2);color:#514b42;font-size:13px;white-space:pre-wrap;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.record-note-page-detail{margin-top:13px}
+.record-section{margin-top:20px}
+.record-section h4{margin:0;color:var(--muted);font-size:13px;font-weight:750}
+.record-quote{margin:9px 0 0;padding:15px 17px;border-left:3px solid #a8bba8;border-radius:0 12px 12px 0;background:var(--surface2);white-space:pre-wrap;overflow-wrap:anywhere;color:var(--text)}
+.record-section .record-body{margin-top:9px}
