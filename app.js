@@ -1,12 +1,14 @@
-// 북치킨클럽 v0.8.1 — 구절 중심 독서 기록
+// 북치킨클럽 v0.9.0 — 게시판 추가
 const API_URL = 'https://script.google.com/macros/s/AKfycbxONtBlo8vsHmi8xdoOt5lJGHjnLOf6o3zPuIB1sYB3Gb2tb2EGe69ET-UFSal03y3K6A/exec';
-const APP_VERSION = '0.8.1';
+const APP_VERSION = '0.9.0';
 
 const data = {
   books: [],
   members: [],
   records: [],
-  meetings: []
+  meetings: [],
+  posts: [],
+  comments: []
 };
 
 let sharedDbAvailable = false;
@@ -23,7 +25,9 @@ const fallbackData = {
   records: [
     {id:'r001', book:'book-b001', book_id:'b001', member_id:'m001', author:'김정운 (869기)', date:'2026.10.07', title:'기억에 남은 구절', page:'32–33', extract:'그때의 나는 지금의 나와는 다른 사람이었다.', body:'과거의 나를 현재의 기준으로만 판단할 수는 없겠다는 생각이 들었다. 지금의 내가 과거를 기억하는 방식도 계속 달라진다.'}
   ],
-  meetings: []
+  meetings: [],
+  posts: [],
+  comments: []
 };
 
 const app = document.getElementById('app');
@@ -47,6 +51,8 @@ function copyData(source){
   data.members = Array.isArray(source.members) ? source.members : [];
   data.records = Array.isArray(source.records) ? source.records : [];
   data.meetings = Array.isArray(source.meetings) ? source.meetings : [];
+  data.posts = Array.isArray(source.posts) ? source.posts : [];
+  data.comments = Array.isArray(source.comments) ? source.comments : [];
 }
 
 function book(id){
@@ -81,7 +87,7 @@ async function fetchData(){
   let lastError = null;
   for(let attempt = 1; attempt <= 3; attempt++){
     try {
-      const url = `${API_URL}?action=data&client=v0.8.1&_=${Date.now()}-${attempt}`;
+      const url = `${API_URL}?action=data&client=v${APP_VERSION}&_=${Date.now()}-${attempt}`;
       const response = await fetch(url, {
         method: 'GET',
         cache: 'no-store',
@@ -101,7 +107,9 @@ async function fetchData(){
           books: Array.isArray(result.books) ? result.books : [],
           members: Array.isArray(result.members) ? result.members : [],
           records: Array.isArray(result.records) ? result.records : [],
-          meetings: Array.isArray(result.meetings) ? result.meetings : []
+          meetings: Array.isArray(result.meetings) ? result.meetings : [],
+          posts: Array.isArray(result.posts) ? result.posts : [],
+          comments: Array.isArray(result.comments) ? result.comments : []
         });
         sharedDbAvailable = true;
         lastDataError = '';
@@ -110,7 +118,9 @@ async function fetchData(){
           books: data.books.length,
           members: data.members.length,
           records: data.records.length,
-          meetings: data.meetings.length
+          meetings: data.meetings.length,
+          posts: data.posts.length,
+          comments: data.comments.length
         });
         return true;
       }
@@ -163,6 +173,10 @@ function render(){
   else if(r === 'member-admin') memberAdminPage();
   else if(r === 'records') records();
   else if(r === 'write-record') writeRecordPage();
+  else if(r === 'board') board();
+  else if(r === 'write-post') writePostPage();
+  else if(r.startsWith('post-edit/')) postEditPage(decodeURIComponent(r.split('/')[1]));
+  else if(r.startsWith('post/')) postDetail(decodeURIComponent(r.split('/')[1]));
   else if(r.startsWith('book/')) bookDetail(decodeURIComponent(r.split('/').slice(1).join('/')));
   else if(r.startsWith('member/')) memberDetail(decodeURIComponent(r.split('/').slice(1).join('/')));
   else if(r.startsWith('record-edit/')) recordEditPage(decodeURIComponent(r.split('/')[1]));
@@ -716,7 +730,7 @@ function recordEditPage(id){
     <label>작성자<input disabled value="${escapeHtml(user.name)}"></label>
     <label>작성일<input id="editRecordDate" type="date" value="${escapeHtml(normalizeDateInput(r.date))}"></label>
     <label>제목<input id="editRecordTitle" value="${escapeHtml(r.title||'')}" placeholder="예: 기억에 남은 구절"></label>
-    <label>페이지 <span class="optional">(선택)</span><input id="editRecordPage" value="${escapeHtml(r.page||'')}" placeholder="예: 32 또는 32–34, E북이라 실물책과 페이지가 달라도 됨"></label>
+    <label>페이지 <span class="optional">(선택)</span><input id="editRecordPage" value="${escapeHtml(r.page||'')}" placeholder="예: 32 또는 32–34"></label>
     <label>기억에 남은 구절 <span class="optional">(선택)</span><textarea id="editRecordExtract" rows="4" placeholder="책에서 인용하고 싶은 구절을 적어주세요.">${escapeHtml(r.extract||'')}</textarea></label>
     <label>내 생각 <textarea id="editRecordContent" rows="10" required placeholder="이 구절을 읽고 어떤 생각이나 감정이 들었나요?">${escapeHtml(r.body||'')}</textarea></label>
     <button class="primary-button" type="submit">수정 내용 저장</button><p id="editRecordMessage" class="form-message"></p>
@@ -789,6 +803,271 @@ function writeRecordPage(){
     </form>
   </div>`;
   document.getElementById('recordForm').addEventListener('submit', saveRecord);
+}
+
+// -------------------- 게시판 v0.9.0 --------------------
+const BOARD_CATEGORIES = ['자유', '독서 토론', '책 추천'];
+let boardSearch = '';
+let boardCategory = '전체';
+
+function postTimestamp(post){
+  const value = Date.parse(post?.created_at || '');
+  return Number.isFinite(value) ? value : 0;
+}
+
+function sortedPosts(posts=data.posts){
+  // 공지는 상단 고정, 각 묶음 안에서는 실제 작성 시각 최신순
+  return [...posts].sort((a,b)=>{
+    const noticeDiff = Number(Boolean(b.is_notice)) - Number(Boolean(a.is_notice));
+    return noticeDiff || postTimestamp(b)-postTimestamp(a) || String(b.id).localeCompare(String(a.id));
+  });
+}
+
+function formatDateTime(value){
+  if(!value) return '시간 정보 없음';
+  const date = value instanceof Date ? value : new Date(value);
+  if(Number.isNaN(date.getTime())) return String(value);
+  const parts = new Intl.DateTimeFormat('ko-KR', {
+    timeZone:'Asia/Seoul', year:'numeric', month:'2-digit', day:'2-digit',
+    hour:'2-digit', minute:'2-digit', hourCycle:'h23'
+  }).formatToParts(date).reduce((acc,part)=>{ if(part.type!=='literal') acc[part.type]=part.value; return acc; },{});
+  return `${parts.year}.${parts.month}.${parts.day}. ${parts.hour}:${parts.minute}`;
+}
+
+function canManagePost(post,user=getUser()){
+  return !!user && (isAdmin(user) || String(post.member_id)===String(user.id));
+}
+
+function canManageComment(comment,user=getUser()){
+  return !!user && (isAdmin(user) || String(comment.member_id)===String(user.id));
+}
+
+function postCard(post){
+  const commentCount = data.comments.filter(c=>String(c.post_id)===String(post.id)).length;
+  const author = post.author || '알 수 없는 회원';
+  return `<article class="board-post-card ${post.is_notice?'is-notice':''}" role="link" tabindex="0" onclick="navigate('#post/${encodeURIComponent(post.id)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();navigate('#post/${encodeURIComponent(post.id)}')}">
+    <div class="board-post-top"><div class="board-tags">${post.is_notice?'<span class="board-notice-tag"><span aria-hidden="true">📌</span> 공지</span>':''}<span class="board-category-tag">${escapeHtml(post.category||'자유')}</span></div><time class="board-datetime">${escapeHtml(formatDateTime(post.created_at))}</time></div>
+    <h2>${escapeHtml(post.title)}</h2>
+    <p class="board-post-excerpt">${escapeHtml(post.body)}</p>
+    <div class="board-post-bottom"><span>${escapeHtml(author)}</span><span><span aria-hidden="true">댓글</span> ${commentCount}</span></div>
+  </article>`;
+}
+
+function board(){
+  boardSearch='';
+  boardCategory='전체';
+  const user=getUser();
+  app.innerHTML=`<div class="page-title"><div class="eyebrow">CLUB BOARD</div><div class="page-title-row"><div><h1>게시판</h1><p>함께 읽고, 이야기하고, 기록하는 공간입니다.</p></div><button class="primary add-book-button" type="button" onclick="navigate('#write-post')">글쓰기</button></div></div>
+    <section class="board-controls" aria-label="게시글 검색 및 분류">
+      <label class="board-search-label">게시글 검색<input id="boardSearch" type="search" placeholder="제목, 내용, 작성자 검색" autocomplete="off" oninput="filterPosts()"></label>
+      <label class="board-category-label">분류<select id="boardCategory" onchange="filterPosts()"><option>전체</option><option>공지사항</option><option>자유</option><option>독서 토론</option><option>책 추천</option></select></label>
+    </section>
+    <div class="board-list-heading"><span id="boardCount">게시글 ${data.posts.length}개</span><span>최신 작성순 · 한국 시간(KST)</span></div>
+    <section id="postList" class="board-post-list"><div class="loading">게시글을 불러오는 중...</div></section>`;
+  filterPosts();
+}
+
+function filterPosts(){
+  const searchEl=document.getElementById('boardSearch');
+  const categoryEl=document.getElementById('boardCategory');
+  const list=document.getElementById('postList');
+  const count=document.getElementById('boardCount');
+  if(!list) return;
+  boardSearch=String(searchEl?.value||'').trim().toLocaleLowerCase('ko-KR');
+  boardCategory=String(categoryEl?.value||'전체');
+  const filtered=sortedPosts().filter(post=>{
+    if(boardCategory==='공지사항' && !post.is_notice) return false;
+    if(boardCategory!=='전체' && boardCategory!=='공지사항' && String(post.category||'자유')!==boardCategory) return false;
+    const haystack=[post.title,post.body,post.author,post.category].join(' ').toLocaleLowerCase('ko-KR');
+    return !boardSearch || haystack.includes(boardSearch);
+  });
+  if(count) count.textContent=`게시글 ${filtered.length}개`;
+  list.innerHTML=filtered.map(postCard).join('') || '<div class="empty">조건에 맞는 게시글이 없습니다.</div>';
+}
+
+function writePostPage(){
+  const user=getUser();
+  if(!user){navigate('#login');return;}
+  app.innerHTML=`<button class="back" onclick="navigate('#board')">← 게시판으로 돌아가기</button>
+    <div class="page-title"><div class="eyebrow">NEW POST</div><h1>글쓰기</h1><p>독서 토론, 책 추천, 모임 이야기를 나눠보세요.</p></div>
+    <div class="auth-card wide"><form id="postForm" class="auth-form">
+      <label>분류<select id="postCategory" required>${BOARD_CATEGORIES.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}</select></label>
+      <label>제목<input id="postTitle" maxlength="180" required placeholder="게시글 제목"></label>
+      <label>내용<textarea id="postBody" rows="12" required maxlength="20000" placeholder="함께 나누고 싶은 이야기를 적어주세요."></textarea></label>
+      ${isAdmin(user)?'<label class="board-check-label"><input id="postIsNotice" type="checkbox"> 공지사항으로 등록하고 게시판 상단에 고정</label>':'<p class="form-hint">공지사항 등록은 관리자만 할 수 있습니다.</p>'}
+      <button class="primary-button" type="submit" ${sharedDbAvailable?'':'disabled'}>게시글 등록</button><p id="postMessage" class="form-message"></p>
+    </form></div>`;
+  document.getElementById('postForm').addEventListener('submit',savePost);
+}
+
+async function savePost(e){
+  e.preventDefault();
+  const user=getUser(),msg=document.getElementById('postMessage');
+  if(!user){navigate('#login');return;}
+  if(!sharedDbAvailable){msg.textContent='공유 DB에 연결된 상태에서만 게시글을 작성할 수 있습니다.';return;}
+  const category=document.getElementById('postCategory').value;
+  const title=document.getElementById('postTitle').value.trim();
+  const body=document.getElementById('postBody').value.trim();
+  const isNotice=!!document.getElementById('postIsNotice')?.checked;
+  if(!title||!body){msg.textContent='제목과 내용을 모두 입력해주세요.';return;}
+  msg.textContent='게시글을 등록하는 중...';
+  try{
+    const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'addPost',member_id:user.id,category,title,body,is_notice:isNotice})});
+    const result=await response.json();
+    if(!result.ok)throw new Error(result.error||'게시글 등록에 실패했습니다.');
+    await fetchData();
+    navigate(`#post/${encodeURIComponent(result.post_id||result.post?.id||result.post?.post_id)}`);
+  }catch(error){msg.textContent=`게시글을 등록하지 못했습니다: ${error.message||error}`;}
+}
+
+function postDetail(id){
+  const post=data.posts.find(p=>String(p.id)===String(id));
+  if(!post){board();return;}
+  const user=getUser();
+  const comments=data.comments.filter(c=>String(c.post_id)===String(post.id)).sort((a,b)=>postTimestamp(a)-postTimestamp(b)||String(a.id).localeCompare(String(b.id)));
+  const actions=`<div class="action-row board-actions"><button class="secondary" type="button" onclick="copyPostLink('${escapeJs(post.id)}')">링크 복사</button>${canManagePost(post,user)?`<button class="secondary" type="button" onclick="navigate('#post-edit/${encodeURIComponent(post.id)}')">수정</button><button class="danger-button" type="button" onclick="deletePostPrompt('${escapeJs(post.id)}')">삭제</button>`:''}</div>`;
+  app.innerHTML=`<button class="back" onclick="navigate('#board')">← 게시판으로 돌아가기</button>
+    <article class="board-post-detail">
+      <div class="board-tags">${post.is_notice?'<span class="board-notice-tag">📌 공지</span>':''}<span class="board-category-tag">${escapeHtml(post.category||'자유')}</span></div>
+      <h1>${escapeHtml(post.title)}</h1>
+      <div class="board-detail-meta"><strong>${escapeHtml(post.author||'알 수 없는 회원')}</strong><time>${escapeHtml(formatDateTime(post.created_at))}</time>${post.updated_at&&post.updated_at!==post.created_at?`<span>수정 ${escapeHtml(formatDateTime(post.updated_at))}</span>`:''}</div>
+      <div class="board-post-body">${escapeHtml(post.body)}</div>${actions}
+    </article>
+    <section class="section board-comments-section"><div class="section-head"><div><h2>댓글</h2><p>${comments.length}개의 댓글</p></div></div>
+      ${user?`<form id="commentForm" class="board-comment-form"><label for="newCommentBody">댓글 작성</label><textarea id="newCommentBody" rows="3" maxlength="5000" required placeholder="댓글을 남겨보세요."></textarea><div class="board-comment-form-bottom"><p id="commentMessage" class="form-message"></p><button class="primary" type="submit" ${sharedDbAvailable?'':'disabled'}>댓글 등록</button></div></form>`:'<div class="empty board-login-note">댓글을 작성하려면 <a href="#login">로그인</a>해주세요.</div>'}
+      <div class="board-comment-list">${comments.map(commentCard).join('')||'<div class="empty">첫 댓글을 남겨보세요.</div>'}</div>
+    </section>`;
+  if(user) document.getElementById('commentForm').addEventListener('submit',e=>saveComment(e,post.id));
+}
+
+function commentCard(comment){
+  const actions=canManageComment(comment)?`<div class="board-comment-actions"><button type="button" onclick="toggleCommentEdit('${escapeJs(comment.id)}')">수정</button><button type="button" class="text-danger" onclick="deleteCommentPrompt('${escapeJs(comment.id)}')">삭제</button></div>`:'';
+  return `<article class="board-comment" id="comment-${escapeHtml(comment.id)}"><div class="board-comment-meta"><strong>${escapeHtml(comment.author||'알 수 없는 회원')}</strong><time>${escapeHtml(formatDateTime(comment.created_at))}</time></div>
+    <div id="commentRead-${escapeHtml(comment.id)}"><p class="board-comment-body">${escapeHtml(comment.body)}</p>${actions}</div>
+    <form id="commentEdit-${escapeHtml(comment.id)}" class="board-inline-edit" hidden onsubmit="saveCommentEdit(event,'${escapeJs(comment.id)}')"><textarea id="commentEditBody-${escapeHtml(comment.id)}" rows="3" maxlength="5000" required>${escapeHtml(comment.body)}</textarea><div><button class="primary" type="submit">저장</button><button class="secondary" type="button" onclick="toggleCommentEdit('${escapeJs(comment.id)}')">취소</button></div></form>
+  </article>`;
+}
+
+async function saveComment(e,postId){
+  e.preventDefault();
+  const user=getUser(),body=document.getElementById('newCommentBody').value.trim(),msg=document.getElementById('commentMessage');
+  if(!user){navigate('#login');return;}
+  if(!sharedDbAvailable){msg.textContent='공유 DB에 연결된 상태에서만 댓글을 작성할 수 있습니다.';return;}
+  if(!body){msg.textContent='댓글 내용을 입력해주세요.';return;}
+  msg.textContent='댓글을 등록하는 중...';
+  try{
+    const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'addComment',post_id:postId,member_id:user.id,body})});
+    const result=await response.json();
+    if(!result.ok)throw new Error(result.error||'댓글 등록에 실패했습니다.');
+    await fetchData();
+    postDetail(postId);
+  }catch(error){msg.textContent=`댓글을 등록하지 못했습니다: ${error.message||error}`;}
+}
+
+function toggleCommentEdit(id){
+  const read=document.getElementById(`commentRead-${id}`),edit=document.getElementById(`commentEdit-${id}`);
+  if(!read||!edit)return;
+  edit.hidden=!edit.hidden;
+  read.hidden=!read.hidden;
+  if(!edit.hidden)document.getElementById(`commentEditBody-${id}`)?.focus();
+}
+
+async function saveCommentEdit(e,id){
+  e.preventDefault();
+  const user=getUser(),comment=data.comments.find(c=>String(c.id)===String(id)),field=document.getElementById(`commentEditBody-${id}`);
+  if(!user||!comment)return;
+  if(!sharedDbAvailable){alert('공유 DB에 연결된 상태에서만 댓글을 수정할 수 있습니다.');return;}
+  const body=field.value.trim();
+  if(!body){alert('댓글 내용을 입력해주세요.');return;}
+  try{
+    const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'updateComment',comment_id:id,member_id:user.id,body})});
+    const result=await response.json();
+    if(!result.ok)throw new Error(result.error||'댓글 수정에 실패했습니다.');
+    await fetchData();
+    postDetail(comment.post_id);
+  }catch(error){alert(`댓글을 수정하지 못했습니다: ${error.message||error}`);}
+}
+
+async function deleteCommentPrompt(id){
+  const user=getUser(),comment=data.comments.find(c=>String(c.id)===String(id));
+  if(!user||!comment)return;
+  if(!sharedDbAvailable){alert('공유 DB에 연결된 상태에서만 댓글을 삭제할 수 있습니다.');return;}
+  if(!confirm('이 댓글을 삭제할까요?'))return;
+  try{
+    const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'deleteComment',comment_id:id,member_id:user.id})});
+    const result=await response.json();
+    if(!result.ok)throw new Error(result.error||'댓글 삭제에 실패했습니다.');
+    await fetchData();
+    postDetail(comment.post_id);
+  }catch(error){alert(`댓글을 삭제하지 못했습니다: ${error.message||error}`);}
+}
+
+async function copyPostLink(id){
+  const url=`${location.origin}${location.pathname}${location.search}#post/${encodeURIComponent(id)}`;
+  try{
+    if(!navigator.clipboard?.writeText) throw new Error('클립보드 기능을 사용할 수 없습니다.');
+    await navigator.clipboard.writeText(url);
+    alert('게시글 주소를 복사했습니다.');
+  }catch(error){
+    window.prompt('아래 주소를 복사해주세요.',url);
+  }
+}
+
+function postEditPage(id){
+  const user=getUser(),post=data.posts.find(p=>String(p.id)===String(id));
+  if(!user){navigate('#login');return;}
+  if(!post||!canManagePost(post,user)||(post.is_notice&&!isAdmin(user))){alert('이 게시글을 수정할 권한이 없습니다.');navigate('#board');return;}
+  app.innerHTML=`<button class="back" onclick="navigate('#post/${encodeURIComponent(post.id)}')">← 게시글로 돌아가기</button>
+    <div class="page-title"><div class="eyebrow">EDIT POST</div><h1>게시글 수정</h1><p>${escapeHtml(post.author||'')}</p></div>
+    <div class="auth-card wide"><form id="postEditForm" class="auth-form">
+      <label>분류<select id="editPostCategory" required>${BOARD_CATEGORIES.map(c=>`<option value="${escapeHtml(c)}" ${String(post.category)===c?'selected':''}>${escapeHtml(c)}</option>`).join('')}</select></label>
+      <label>제목<input id="editPostTitle" maxlength="180" required value="${escapeHtml(post.title)}"></label>
+      <label>내용<textarea id="editPostBody" rows="12" maxlength="20000" required>${escapeHtml(post.body)}</textarea></label>
+      ${isAdmin(user)?`<label class="board-check-label"><input id="editPostIsNotice" type="checkbox" ${post.is_notice?'checked':''}> 공지사항으로 등록하고 게시판 상단에 고정</label>`:post.is_notice?'<p class="form-hint">공지사항을 수정하려면 관리자 권한이 필요합니다.</p>':''}
+      <button class="primary-button" type="submit" ${sharedDbAvailable?'':'disabled'}>수정 내용 저장</button><p id="editPostMessage" class="form-message"></p>
+    </form></div>`;
+  document.getElementById('postEditForm').addEventListener('submit',e=>savePostEdit(e,post));
+}
+
+async function savePostEdit(e,post){
+  e.preventDefault();
+  const user=getUser(),msg=document.getElementById('editPostMessage');
+  if(!user){navigate('#login');return;}
+  if(!sharedDbAvailable){msg.textContent='공유 DB에 연결된 상태에서만 게시글을 수정할 수 있습니다.';return;}
+  const title=document.getElementById('editPostTitle').value.trim();
+  const body=document.getElementById('editPostBody').value.trim();
+  const category=document.getElementById('editPostCategory').value;
+  const isNoticeEl=document.getElementById('editPostIsNotice');
+  if(!title||!body){msg.textContent='제목과 내용을 모두 입력해주세요.';return;}
+  msg.textContent='수정 내용을 저장하는 중...';
+  try{
+    const payload={action:'updatePost',post_id:post.id,member_id:user.id,title,body,category};
+    if(isNoticeEl)payload.is_notice=isNoticeEl.checked;
+    const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)});
+    const result=await response.json();
+    if(!result.ok)throw new Error(result.error||'게시글 수정에 실패했습니다.');
+    await fetchData();
+    navigate(`#post/${encodeURIComponent(post.id)}`);
+  }catch(error){msg.textContent=`게시글을 수정하지 못했습니다: ${error.message||error}`;}
+}
+
+async function deletePostPrompt(id){
+  const user=getUser(),post=data.posts.find(p=>String(p.id)===String(id));
+  if(!user||!post)return;
+  if(!canManagePost(post,user)||(post.is_notice&&!isAdmin(user))){alert('이 게시글을 삭제할 권한이 없습니다.');return;}
+  if(!sharedDbAvailable){alert('공유 DB에 연결된 상태에서만 게시글을 삭제할 수 있습니다.');return;}
+  if(!confirm('게시글과 포함된 댓글을 모두 삭제할까요? 삭제하면 되돌릴 수 없습니다.'))return;
+  try{
+    const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'deletePost',post_id:id,member_id:user.id})});
+    const result=await response.json();
+    if(!result.ok)throw new Error(result.error||'게시글 삭제에 실패했습니다.');
+    await fetchData();
+    navigate('#board');
+  }catch(error){alert(`게시글을 삭제하지 못했습니다: ${error.message||error}`);}
+}
+
+function escapeJs(value){
+  return String(value??'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\r/g,'\\r').replace(/\n/g,'\\n').replace(/</g,'\\x3c').replace(/>/g,'\\x3e');
 }
 
 function loginPage(){
@@ -881,6 +1160,12 @@ window.showEditBookForm = showEditBookForm;
 window.showAddMeetingForm = showAddMeetingForm;
 window.hideAddMeetingForm = hideAddMeetingForm;
 window.downloadBook = downloadBook;
+window.filterPosts = filterPosts;
+window.copyPostLink = copyPostLink;
+window.toggleCommentEdit = toggleCommentEdit;
+window.saveCommentEdit = saveCommentEdit;
+window.deleteCommentPrompt = deleteCommentPrompt;
+window.deletePostPrompt = deletePostPrompt;
 
 function getUser(){
   try{return JSON.parse(localStorage.getItem('bcc_user')||'null');}
