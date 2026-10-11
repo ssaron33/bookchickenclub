@@ -716,7 +716,7 @@ function recordEditPage(id){
     <label>작성자<input disabled value="${escapeHtml(user.name)}"></label>
     <label>작성일<input id="editRecordDate" type="date" value="${escapeHtml(normalizeDateInput(r.date))}"></label>
     <label>제목<input id="editRecordTitle" value="${escapeHtml(r.title||'')}" placeholder="예: 기억에 남은 구절"></label>
-    <label>페이지 <span class="optional">(선택)</span><input id="editRecordPage" value="${escapeHtml(r.page||'')}" placeholder="예: 32 또는 32–34"></label>
+    <label>페이지 <span class="optional">(선택)</span><input id="editRecordPage" value="${escapeHtml(r.page||'')}" placeholder="예: 32 또는 32–34, E북이라 실물책과 페이지가 달라도 됨"></label>
     <label>기억에 남은 구절 <span class="optional">(선택)</span><textarea id="editRecordExtract" rows="4" placeholder="책에서 인용하고 싶은 구절을 적어주세요.">${escapeHtml(r.extract||'')}</textarea></label>
     <label>내 생각 <textarea id="editRecordContent" rows="10" required placeholder="이 구절을 읽고 어떤 생각이나 감정이 들었나요?">${escapeHtml(r.body||'')}</textarea></label>
     <button class="primary-button" type="submit">수정 내용 저장</button><p id="editRecordMessage" class="form-message"></p>
