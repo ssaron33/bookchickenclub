@@ -1,6 +1,6 @@
-// 북치킨클럽 v0.9.0 — 게시판 추가
+// 북치킨클럽 v0.9.1 — 게시판 추가
 const API_URL = 'https://script.google.com/macros/s/AKfycbxONtBlo8vsHmi8xdoOt5lJGHjnLOf6o3zPuIB1sYB3Gb2tb2EGe69ET-UFSal03y3K6A/exec';
-const APP_VERSION = '0.9.0';
+const APP_VERSION = '0.9.1';
 
 const data = {
   books: [],
@@ -805,7 +805,7 @@ function writeRecordPage(){
   document.getElementById('recordForm').addEventListener('submit', saveRecord);
 }
 
-// -------------------- 게시판 v0.9.0 --------------------
+// -------------------- 게시판 v0.9.1 --------------------
 const BOARD_CATEGORIES = ['자유', '독서 토론', '책 추천'];
 let boardSearch = '';
 let boardCategory = '전체';
@@ -845,11 +845,17 @@ function canManageComment(comment,user=getUser()){
 function postCard(post){
   const commentCount = data.comments.filter(c=>String(c.post_id)===String(post.id)).length;
   const author = post.author || '알 수 없는 회원';
-  return `<article class="board-post-card ${post.is_notice?'is-notice':''}" role="link" tabindex="0" onclick="navigate('#post/${encodeURIComponent(post.id)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();navigate('#post/${encodeURIComponent(post.id)}')}">
-    <div class="board-post-top"><div class="board-tags">${post.is_notice?'<span class="board-notice-tag"><span aria-hidden="true">📌</span> 공지</span>':''}<span class="board-category-tag">${escapeHtml(post.category||'자유')}</span></div><time class="board-datetime">${escapeHtml(formatDateTime(post.created_at))}</time></div>
-    <h2>${escapeHtml(post.title)}</h2>
-    <p class="board-post-excerpt">${escapeHtml(post.body)}</p>
-    <div class="board-post-bottom"><span>${escapeHtml(author)}</span><span><span aria-hidden="true">댓글</span> ${commentCount}</span></div>
+  const category = post.category || '자유';
+  return `<article class="board-post-row ${post.is_notice?'is-notice':''}" role="link" tabindex="0" aria-label="${escapeHtml(post.title)} - 댓글 ${commentCount}개, 작성자 ${escapeHtml(author)}" onclick="navigate('#post/${encodeURIComponent(post.id)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();navigate('#post/${encodeURIComponent(post.id)}')}">
+    <div class="board-row-main">
+      <div class="board-row-title-line">
+        ${post.is_notice?'<span class="board-notice-tag"><span aria-hidden="true">📌</span> 공지</span>':''}
+        <span class="board-row-category">[${escapeHtml(category)}]</span>
+        <h2>${escapeHtml(post.title)}</h2>
+        <span class="board-comment-count">(${commentCount})</span>
+      </div>
+    </div>
+    <div class="board-row-meta"><span class="board-row-author">${escapeHtml(author)}</span><time class="board-datetime">${escapeHtml(formatDateTime(post.created_at))}</time></div>
   </article>`;
 }
 
@@ -863,6 +869,7 @@ function board(){
       <label class="board-category-label">분류<select id="boardCategory" onchange="filterPosts()"><option>전체</option><option>공지사항</option><option>자유</option><option>독서 토론</option><option>책 추천</option></select></label>
     </section>
     <div class="board-list-heading"><span id="boardCount">게시글 ${data.posts.length}개</span><span>최신 작성순 · 한국 시간(KST)</span></div>
+    <div class="board-table-head" aria-hidden="true"><span>제목</span><span>작성자 / 작성일</span></div>
     <section id="postList" class="board-post-list"><div class="loading">게시글을 불러오는 중...</div></section>`;
   filterPosts();
 }
