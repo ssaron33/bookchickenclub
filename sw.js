@@ -37,7 +37,10 @@ self.addEventListener('fetch', event => {
     const bust = new URL(url.href);
     bust.searchParams.set('v', APP_VERSION);
     event.respondWith(
-      fetch(new Request(bust.href, request), {cache:'no-store'})
+      fetch(bust.href, {
+        cache: 'no-store',
+        credentials: 'same-origin'
+      })
         .then(response => {
           if(response.ok){
             caches.open(CACHE_NAME).then(cache => cache.put(request, response.clone())).catch(()=>{});
