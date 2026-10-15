@@ -147,3 +147,8 @@ body:has(.route-page:not(#home):target) .static-routes .route-page:first-child {
 }
 
 @media(max-width:800px){.mobile-nav{flex-wrap:wrap}.mobile-nav a{flex:1 1 calc(33.333% - 6px);white-space:nowrap}}
+
+/* v0.9.2: record comments and actual creation timestamps */
+.record-card-comment-count{display:inline-block;margin-left:5px;color:var(--warm);font-size:12px;font-weight:650;font-variant-numeric:tabular-nums}
+.record-comments-section{max-width:850px}
+.record-comments-section .empty{margin-top:14px}

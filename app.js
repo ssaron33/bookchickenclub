@@ -1,6 +1,6 @@
-// 북치킨클럽 v0.9.1 — 게시판 추가
+// 북치킨클럽 v0.9.2 — 독서 기록 정렬·댓글
 const API_URL = 'https://script.google.com/macros/s/AKfycbxONtBlo8vsHmi8xdoOt5lJGHjnLOf6o3zPuIB1sYB3Gb2tb2EGe69ET-UFSal03y3K6A/exec';
-const APP_VERSION = '0.9.1';
+const APP_VERSION = '0.9.2';
 
 const data = {
   books: [],
@@ -8,7 +8,8 @@ const data = {
   records: [],
   meetings: [],
   posts: [],
-  comments: []
+  comments: [],
+  recordComments: []
 };
 
 let sharedDbAvailable = false;
@@ -23,11 +24,12 @@ const fallbackData = {
     {id:'m001', name:'김정운 (869기)', plain_name:'김정운', cohort:'869기'}
   ],
   records: [
-    {id:'r001', book:'book-b001', book_id:'b001', member_id:'m001', author:'김정운 (869기)', date:'2026.10.07', title:'기억에 남은 구절', page:'32–33', extract:'그때의 나는 지금의 나와는 다른 사람이었다.', body:'과거의 나를 현재의 기준으로만 판단할 수는 없겠다는 생각이 들었다. 지금의 내가 과거를 기억하는 방식도 계속 달라진다.'}
+    {id:'r001', book:'book-b001', book_id:'b001', member_id:'m001', author:'김정운 (869기)', date:'2026.10.07', title:'기억에 남은 구절', page:'32–33', extract:'그때의 나는 지금의 나와는 다른 사람이었다.', body:'과거의 나를 현재의 기준으로만 판단할 수는 없겠다는 생각이 들었다. 지금의 내가 과거를 기억하는 방식도 계속 달라진다.', created_at:'2026-10-07T12:00:00.000Z', updated_at:'2026-10-07T12:00:00.000Z'}
   ],
   meetings: [],
   posts: [],
-  comments: []
+  comments: [],
+  recordComments: []
 };
 
 const app = document.getElementById('app');
@@ -53,6 +55,7 @@ function copyData(source){
   data.meetings = Array.isArray(source.meetings) ? source.meetings : [];
   data.posts = Array.isArray(source.posts) ? source.posts : [];
   data.comments = Array.isArray(source.comments) ? source.comments : [];
+  data.recordComments = Array.isArray(source.recordComments) ? source.recordComments : [];
 }
 
 function book(id){
@@ -70,6 +73,37 @@ function normalizeDateInput(value){
   m = s.match(/^(\d{4}-\d{2}-\d{2})/);
   if(m) return m[1];
   return '';
+}
+
+function recordTimestamp(record){
+  const created = Date.parse(record?.created_at || '');
+  if(Number.isFinite(created)) return created;
+  const rawDate=String(record?.date||'').trim();
+  // When Sheets serialized a date cell into an ISO timestamp, preserve that instant.
+  if(/[T ]/.test(rawDate) && /Z$|[+-]\d{2}:?\d{2}$/.test(rawDate)){
+    const parsed=Date.parse(rawDate);
+    if(Number.isFinite(parsed)) return parsed;
+  }
+  const recordDate = normalizeDateInput(rawDate);
+  const fallback = recordDate ? Date.parse(`${recordDate}T00:00:00+09:00`) : NaN;
+  return Number.isFinite(fallback) ? fallback : 0;
+}
+
+function sortedRecords(records=data.records){
+  return [...records].sort((a,b)=>recordTimestamp(b)-recordTimestamp(a)||String(b.id||'').localeCompare(String(a.id||''),undefined,{numeric:true}));
+}
+
+function recordCreatedAtLabel(record){
+  return record?.created_at ? formatDateTime(record.created_at) : '작성 시각 정보 없음';
+}
+
+function recordDateLabel(value){
+  if(!value) return '날짜 정보 없음';
+  const s=String(value).trim();
+  // Sheets can serialize a date-only cell as an ISO timestamp at 15:00Z; format it in KST.
+  if(/[T ]/.test(s) && /Z$|[+-]\d{2}:?\d{2}$/.test(s)) return formatDateTime(s).split(' ').slice(0,1)[0].replace(/\.$/,'');
+  const normalized=normalizeDateInput(s);
+  return normalized ? normalized.replace(/-/g,'.') : s;
 }
 
 function escapeHtml(value){
@@ -109,7 +143,8 @@ async function fetchData(){
           records: Array.isArray(result.records) ? result.records : [],
           meetings: Array.isArray(result.meetings) ? result.meetings : [],
           posts: Array.isArray(result.posts) ? result.posts : [],
-          comments: Array.isArray(result.comments) ? result.comments : []
+          comments: Array.isArray(result.comments) ? result.comments : [],
+          recordComments: Array.isArray(result.record_comments) ? result.record_comments : []
         });
         sharedDbAvailable = true;
         lastDataError = '';
@@ -120,7 +155,8 @@ async function fetchData(){
           records: data.records.length,
           meetings: data.meetings.length,
           posts: data.posts.length,
-          comments: data.comments.length
+          comments: data.comments.length,
+          recordComments: data.recordComments.length
         });
         return true;
       }
@@ -139,7 +175,7 @@ async function fetchData(){
   // file://에서 오프라인 프로토타입을 직접 열 때만 샘플 데이터를 사용한다.
   // GitHub Pages에서는 샘플 데이터를 실제 데이터처럼 보여주지 않는다.
   if(location.protocol === 'file:') copyData(fallbackData);
-  else copyData({books:[], members:[], records:[], meetings:[]});
+  else copyData({books:[], members:[], records:[], meetings:[], posts:[], comments:[], recordComments:[]});
   return false;
 }
 
@@ -208,7 +244,7 @@ function home(){
     </section>
     <section class="section">
       <div class="section-head"><div><h2>최근 독서 기록</h2><p>회원들이 남긴 기록입니다.</p></div>${navButton('전체 기록 →','records')}</div>
-      <div class="list">${[...data.records].sort((a,b)=>String(b.date).localeCompare(String(a.date))).slice(0,3).map(recordCard).join('') || '<div class="empty">등록된 독서 기록이 없습니다.</div>'}</div>
+      <div class="list">${sortedRecords().slice(0,3).map(recordCard).join('') || '<div class="empty">등록된 독서 기록이 없습니다.</div>'}</div>
     </section>`;
 }
 
@@ -291,8 +327,7 @@ function bookDetail(id){
   const user = getUser();
   const participants = Array.isArray(b.participants) ? b.participants : [];
   const participated = isUserParticipant(b, user);
-  const rs = data.records.filter(r => normalizeBookId(r.book) === normalizeBookId(b.id))
-    .sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  const rs = sortedRecords(data.records.filter(r => normalizeBookId(r.book) === normalizeBookId(b.id)));
   const ms = data.meetings.filter(m => normalizeBookId(m.book) === normalizeBookId(b.id))
     .sort((a,b)=>String(b.date).localeCompare(String(a.date)));
 
@@ -603,7 +638,7 @@ async function saveMemberAdmin(e){
 function memberDetail(id){
   const m=data.members.find(x=>String(x.id)===String(id));
   if(!m){navigate('#members');return;}
-  const rs=data.records.filter(r=>String(r.member_id)===String(m.id)).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  const rs=sortedRecords(data.records.filter(r=>String(r.member_id)===String(m.id)));
   const participatedBooks=data.books.filter(b=>isUserParticipant(b, {id:m.id,name:m.plain_name||m.name}));
   app.innerHTML=`<button class="back" onclick="navigate('#members')">← 회원 목록으로 돌아가기</button>
   <div class="page-title"><div class="eyebrow">MEMBER</div><h1>${escapeHtml(m.plain_name||m.name)}</h1><p>${escapeHtml(m.cohort||'기수 미상')}</p></div>
@@ -679,9 +714,9 @@ async function saveBook(e){
 }
 
 function records(){
-  const rs=[...data.records].sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  const rs=sortedRecords();
   app.innerHTML=`<div class="page-title"><div class="eyebrow">READING NOTES</div><h1>전체 독서 기록</h1>
-  <p>북치킨클럽 회원들이 남긴 모든 독서 기록을 최신 작성일 순으로 볼 수 있습니다.</p></div>
+  <p>북치킨클럽 회원들이 남긴 기록을 실제 작성 시각 최신순으로 볼 수 있습니다. 시간은 한국 시간(KST) 기준입니다.</p></div>
   <div class="stats"><div class="stat"><strong>${data.records.length}</strong><span>전체 기록</span></div>
   <div class="stat"><strong>${new Set(data.records.map(r=>r.author)).size}</strong><span>기록 작성자</span></div>
   <div class="stat"><strong>${new Set(data.records.map(r=>r.book)).size}</strong><span>기록이 있는 책</span></div></div>
@@ -696,10 +731,11 @@ function recordCard(r){
   </div>` : '';
   const pageMarkup=String(r.page??'').trim() ? `<span class="record-note-page">페이지 ${escapeHtml(r.page)}</span>` : '';
   const extractMarkup=String(r.extract??'').trim() ? `<blockquote class="record-quote-preview">${escapeHtml(r.extract)}</blockquote>` : '';
+  const commentCount=data.recordComments.filter(c=>String(c.record_id)===String(r.id)).length;
   return `<article class="record-card" onclick="navigate('#record/${encodeURIComponent(r.id)}')">
     <div class="record-top"><div><strong>${escapeHtml(r.author)}</strong><div class="record-book">${escapeHtml(b?.title||'알 수 없는 책')}</div></div>
-    <span class="tag">${escapeHtml(r.date)}</span></div>
-    <div class="record-card-title">${escapeHtml(r.title||'독서 기록')}</div>
+    <span class="tag">${escapeHtml(recordCreatedAtLabel(r))}</span></div>
+    <div class="record-card-title">${escapeHtml(r.title||'독서 기록')} <span class="record-card-comment-count">(${commentCount})</span></div>
     ${pageMarkup}${extractMarkup}
     <p class="excerpt">${escapeHtml(r.body||'')}</p>${ownerActions}</article>`;
 }
@@ -710,13 +746,87 @@ function recordDetail(id){
   const b=book(r.book), user=getUser(), mine=!!user && String(r.member_id)===String(user.id);
   const pageMarkup=String(r.page??'').trim() ? `<div class="record-note-page record-note-page-detail">페이지 ${escapeHtml(r.page)}</div>` : '';
   const extractMarkup=String(r.extract??'').trim() ? `<section class="record-section"><h4>기억에 남은 구절</h4><blockquote class="record-quote">${escapeHtml(r.extract)}</blockquote></section>` : '';
+  const recordComments=data.recordComments.filter(c=>String(c.record_id)===String(r.id)).sort((a,b)=>commentTimestamp(a)-commentTimestamp(b)||String(a.id).localeCompare(String(b.id),undefined,{numeric:true}));
   app.innerHTML=`<button class="back" onclick="navigate('#records')">← 독서 기록 목록</button>
   <div class="page-title"><div class="eyebrow">READING NOTE</div><h1>${escapeHtml(r.title||'독서 기록')}</h1>
-  <p>${escapeHtml(r.author)} · ${escapeHtml(r.date)} · ${escapeHtml(b?.title||'')}</p></div>
-  <article class="record-full"><h3>${escapeHtml(r.author)}</h3><div class="date">작성일 ${escapeHtml(r.date)}</div>
+  <p>${escapeHtml(r.author)} · ${escapeHtml(recordCreatedAtLabel(r))} · ${escapeHtml(b?.title||'')}</p></div>
+  <article class="record-full"><h3>${escapeHtml(r.author)}</h3><div class="date">작성 시각 ${escapeHtml(recordCreatedAtLabel(r))} · 기록일 ${escapeHtml(recordDateLabel(r.date))}</div>
   ${pageMarkup}${extractMarkup}
   <section class="record-section"><h4>내 생각</h4><div class="record-body">${escapeHtml(r.body||'')}</div></section></article>
-  <div class="action-row"><button class="primary" onclick="navigate('#book/${encodeURIComponent(r.book)}')">책 페이지로 이동</button>${mine?`<button class="secondary" onclick="navigate('#record-edit/${encodeURIComponent(r.id)}')">✎ 수정</button><button class="danger-button" type="button" onclick="deleteRecordPrompt('${String(r.id).replace(/'/g,"\\'")}');return false;">삭제</button>`:''}</div>`;
+  <div class="action-row"><button class="primary" onclick="navigate('#book/${encodeURIComponent(r.book)}')">책 페이지로 이동</button>${mine?`<button class="secondary" onclick="navigate('#record-edit/${encodeURIComponent(r.id)}')">✎ 수정</button><button class="danger-button" type="button" onclick="deleteRecordPrompt('${String(r.id).replace(/'/g,"\\'")}');return false;">삭제</button>`:''}</div>
+  <section class="section board-comments-section record-comments-section"><div class="section-head"><div><h2>댓글</h2><p>${recordComments.length}개의 댓글</p></div></div>
+    ${user?`<form id="recordCommentForm" class="board-comment-form"><label for="newRecordCommentBody">독서 기록에 댓글 남기기</label><textarea id="newRecordCommentBody" rows="3" maxlength="5000" required placeholder="이 기록에 대한 생각을 남겨보세요."></textarea><div class="board-comment-form-bottom"><p id="recordCommentMessage" class="form-message"></p><button class="primary" type="submit" ${sharedDbAvailable?'':'disabled'}>댓글 등록</button></div></form>`:`<div class="empty">댓글을 남기려면 로그인해주세요. <button class="secondary" onclick="navigate('#login')">로그인</button></div>`}
+    <div class="board-comment-list">${recordComments.map(recordCommentCard).join('')||'<div class="empty">아직 댓글이 없습니다.</div>'}</div>
+  </section>`;
+  if(user) document.getElementById('recordCommentForm').addEventListener('submit',e=>saveRecordComment(e,r.id));
+}
+
+function commentTimestamp(comment){
+  const value=Date.parse(comment?.created_at||'');
+  return Number.isFinite(value)?value:0;
+}
+
+function recordCommentCard(comment){
+  const actions=canManageComment(comment)?`<div class="board-comment-actions"><button type="button" onclick="toggleRecordCommentEdit('${escapeJs(comment.id)}')">수정</button><button type="button" class="text-danger" onclick="deleteRecordCommentPrompt('${escapeJs(comment.id)}')">삭제</button></div>`:'';
+  return `<article class="board-comment" id="record-comment-${escapeHtml(comment.id)}"><div class="board-comment-meta"><strong>${escapeHtml(comment.author||'알 수 없는 회원')}</strong><time>${escapeHtml(formatDateTime(comment.created_at))}</time></div>
+    <div id="recordCommentRead-${escapeHtml(comment.id)}"><p class="board-comment-body">${escapeHtml(comment.body)}</p>${actions}</div>
+    <form id="recordCommentEdit-${escapeHtml(comment.id)}" class="board-inline-edit" hidden onsubmit="saveRecordCommentEdit(event,'${escapeJs(comment.id)}')"><textarea id="recordCommentEditBody-${escapeHtml(comment.id)}" rows="3" maxlength="5000" required>${escapeHtml(comment.body)}</textarea><div><button class="primary" type="submit">저장</button><button class="secondary" type="button" onclick="toggleRecordCommentEdit('${escapeJs(comment.id)}')">취소</button></div></form>
+  </article>`;
+}
+
+async function saveRecordComment(e,recordId){
+  e.preventDefault();
+  const user=getUser(),field=document.getElementById('newRecordCommentBody'),msg=document.getElementById('recordCommentMessage');
+  if(!user){navigate('#login');return;}
+  if(!sharedDbAvailable){msg.textContent='공유 DB에 연결된 상태에서만 댓글을 작성할 수 있습니다.';return;}
+  const body=field.value.trim();
+  if(!body){msg.textContent='댓글 내용을 입력해주세요.';return;}
+  msg.textContent='댓글을 등록하는 중...';
+  try{
+    const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'addRecordComment',record_id:recordId,member_id:user.id,body})});
+    const result=await response.json();
+    if(!result.ok)throw new Error(result.error||'댓글 등록에 실패했습니다.');
+    await fetchData();
+    recordDetail(recordId);
+  }catch(error){msg.textContent=`댓글을 등록하지 못했습니다: ${error.message||error}`;}
+}
+
+function toggleRecordCommentEdit(id){
+  const read=document.getElementById(`recordCommentRead-${id}`),edit=document.getElementById(`recordCommentEdit-${id}`);
+  if(!read||!edit)return;
+  edit.hidden=!edit.hidden;
+  read.hidden=!read.hidden;
+  if(!edit.hidden)document.getElementById(`recordCommentEditBody-${id}`)?.focus();
+}
+
+async function saveRecordCommentEdit(e,id){
+  e.preventDefault();
+  const user=getUser(),comment=data.recordComments.find(c=>String(c.id)===String(id)),field=document.getElementById(`recordCommentEditBody-${id}`);
+  if(!user||!comment)return;
+  if(!sharedDbAvailable){alert('공유 DB에 연결된 상태에서만 댓글을 수정할 수 있습니다.');return;}
+  const body=field.value.trim();
+  if(!body){alert('댓글 내용을 입력해주세요.');return;}
+  try{
+    const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'updateRecordComment',record_comment_id:id,member_id:user.id,body})});
+    const result=await response.json();
+    if(!result.ok)throw new Error(result.error||'댓글 수정에 실패했습니다.');
+    await fetchData();
+    recordDetail(comment.record_id);
+  }catch(error){alert(`댓글을 수정하지 못했습니다: ${error.message||error}`);}
+}
+
+async function deleteRecordCommentPrompt(id){
+  const user=getUser(),comment=data.recordComments.find(c=>String(c.id)===String(id));
+  if(!user||!comment)return;
+  if(!sharedDbAvailable){alert('공유 DB에 연결된 상태에서만 댓글을 삭제할 수 있습니다.');return;}
+  if(!confirm('이 댓글을 삭제할까요?'))return;
+  try{
+    const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'deleteRecordComment',record_comment_id:id,member_id:user.id})});
+    const result=await response.json();
+    if(!result.ok)throw new Error(result.error||'댓글 삭제에 실패했습니다.');
+    await fetchData();
+    recordDetail(comment.record_id);
+  }catch(error){alert(`댓글을 삭제하지 못했습니다: ${error.message||error}`);}
 }
 
 function recordEditPage(id){
@@ -784,6 +894,9 @@ async function deleteRecordPrompt(id){
   }
 }
 window.deleteRecordPrompt = deleteRecordPrompt;
+window.toggleRecordCommentEdit = toggleRecordCommentEdit;
+window.saveRecordCommentEdit = saveRecordCommentEdit;
+window.deleteRecordCommentPrompt = deleteRecordCommentPrompt;
 
 function writeRecordPage(){
   const user=getUser();
